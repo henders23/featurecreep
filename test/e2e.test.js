@@ -52,6 +52,12 @@ test('two players can play a full round over WebSockets', async () => {
     a.send({ type: 'create', name: 'Amira' });
     const joinedA = await a.waitFor((m) => m.type === 'joined');
 
+    // someone still on the start screen sees the new game and its player count
+    const listed = await b.waitFor((m) => m.type === 'games' && m.games.length === 1);
+    assert.strictEqual(listed.games[0].code, joinedA.code);
+    assert.strictEqual(listed.games[0].host, 'Amira');
+    assert.deepStrictEqual([listed.games[0].players, listed.games[0].max, listed.games[0].full], [1, 4, false]);
+
     b.send({ type: 'join', code: 'NOPE-00', name: 'Jun' });
     const err = await b.waitFor((m) => m.type === 'error');
     assert.match(err.message, /No game/);
@@ -63,8 +69,8 @@ test('two players can play a full round over WebSockets', async () => {
 
     // a guest cannot change settings; the host can
     b.send({ type: 'settings', settings: { focus: 'organisation' } });
-    a.send({ type: 'settings', settings: { focus: 'text', textId: 'emi' } });
-    const set = await b.waitFor((m) => m.type === 'state' && m.settings.focus === 'text');
+    a.send({ type: 'settings', settings: { focus: 'argument', textId: 'emi' } });
+    const set = await b.waitFor((m) => m.type === 'state' && m.settings.focus === 'argument');
     assert.strictEqual(set.settings.textId, 'emi');
 
     a.clear(); b.clear();
@@ -75,7 +81,7 @@ test('two players can play a full round over WebSockets', async () => {
     assert.ok(!JSON.stringify(roundA).includes('"pf"'), 'clients never see the tags');
     const st = await a.waitFor((m) => m.type === 'state' && m.round);
     assert.strictEqual(st.round.tray.length, 5);
-    for (const tile of st.round.tray) assert.strictEqual(welcomeA.features[tile.fid].cat, 'text');
+    for (const tile of st.round.tray) assert.strictEqual(welcomeA.features[tile.fid].cat, 'argument');
 
     // Amira claims a tile and finds it in the text
     const room = manager.get(joinedA.code);
@@ -115,8 +121,8 @@ test('two players can play a full round over WebSockets', async () => {
     assert.strictEqual(overA.players[0].finds.length, 1);
     assert.strictEqual(overA.found.length, 1);
     assert.ok(overA.missed.length > 0);
-    assert.deepStrictEqual(overA.categories, ['text']);
-    assert.ok(overA.missed.every((m) => welcomeA.features[m.fid].cat === 'text'));
+    assert.deepStrictEqual(overA.categories, ['argument']);
+    assert.ok(overA.missed.every((m) => welcomeA.features[m.fid].cat === 'argument'));
     assert.deepStrictEqual(overA, overB, 'everyone sees the same results');
     const after = await a.waitFor((m) => m.type === 'state' && m.phase === 'over');
     assert.ok(!after.round);

@@ -15,6 +15,7 @@
     clockOffset: 0,
     error: '',
     lobbyKey: '',
+    games: [],            // games listed on the start screen
     game: null            // live DOM references while playing
   };
   const app = document.getElementById('app');
@@ -60,7 +61,7 @@
   const logo = (cls) => '<div class="logo ' + (cls || '') + '"><span>Feature</span><span class="creep"><span>C</span><span>r</span><span>e</span><span>e</span><span>p</span></span></div>';
   const catIcon = (catId) => {
     if (catId === 'language') return '<span class="aa">Aa</span>';
-    if (catId === 'text') return '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#10131A" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M4 6H20M4 11H20M4 16H14"></path></svg>';
+    if (catId === 'argument') return '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#10131A" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M4 6H20M4 11H20M4 16H14"></path></svg>';
     return '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#10131A" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1"></rect><rect x="3" y="11" width="12" height="4" rx="1"></rect><rect x="3" y="17" width="15" height="4" rx="1"></rect></svg>';
   };
 
@@ -85,6 +86,10 @@
         S.cat = msg;
         S.me = msg.you;
         render();
+        break;
+      case 'games':
+        S.games = msg.games;
+        if (S.screen === 'home') renderGames();
         break;
       case 'pong': {
         const now = Date.now();
@@ -169,19 +174,37 @@
     app.innerHTML =
       '<main class="home"><div class="home-inner">' +
       '<div class="home-hero">' +
-      '<span class="kicker gold">A reading hunt for 1–6 players</span>' +
+      '<span class="kicker gold">A reading hunt for 1–4 players</span>' +
       logo('big') +
       '<p>An academic essay rises up the screen towards a shredder. Claim features of academic writing from the tray, then find them in the text before they’re gone.</p>' +
       '</div>' +
       '<div class="field" style="max-width:420px"><label for="name">Your name</label><input id="name" class="input" maxlength="18" autocomplete="nickname" value="' + esc(savedName()) + '" placeholder="e.g. Amira"></div>' +
       '<div class="home-forms">' +
-      '<div class="panel form-card"><h2 style="font-size:24px">Start a new game</h2><p style="margin:0;color:var(--soft);font-size:15px;line-height:1.5">You’ll get a code to share. You choose the text and the features.</p><button type="button" class="btn btn-gold" data-action="create">Create a game</button></div>' +
-      '<div class="panel form-card"><h2 style="font-size:24px">Join a game</h2><div class="field"><label for="code">Game code</label><input id="code" class="input code" maxlength="10" placeholder="HEDGE-42" autocomplete="off"></div><button type="button" class="btn btn-ghost" data-action="join">Join</button></div>' +
+      '<div class="panel form-card"><h2 style="font-size:24px">Start a new game</h2><p style="margin:0;color:var(--soft);font-size:15px;line-height:1.5">You’ll host it: you choose the text and the features, and you decide when the game starts.</p><button type="button" class="btn btn-gold" data-action="create">Start a new game</button></div>' +
+      '<div class="panel form-card"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px"><h2 style="font-size:24px">Join a game</h2><span class="kicker">Up to 4 players</span></div><div id="games" class="games"></div></div>' +
       '</div>' +
       '<p class="error" role="alert">' + esc(S.error) + '</p>' +
       '</div></main>';
-    const code = document.getElementById('code');
-    code.addEventListener('keydown', (e) => { if (e.key === 'Enter') doJoin(); });
+    renderGames();
+  }
+
+  function renderGames() {
+    const box = document.getElementById('games');
+    if (!box) return;
+    if (!S.games.length) {
+      box.innerHTML = '<p class="games-empty">No games yet. Start one, or wait for someone else to.</p>';
+      return;
+    }
+    box.innerHTML = S.games.map((g) => {
+      const dots = Array.from({ length: g.max }, (_, i) => '<i class="' + (i < g.players ? 'on' : '') + '"></i>').join('');
+      const status = g.full ? 'Full' : (g.phase === 'lobby' ? 'Waiting to start' : (g.phase === 'playing' ? 'Round in progress' : 'Reviewing results'));
+      return '<div class="game-row' + (g.full ? ' full' : '') + '">' +
+        '<div class="game-info"><strong>' + esc(g.host ? g.host + '’s game' : 'Game') + '</strong>' +
+        '<span><span class="mono">' + esc(g.code) + '</span> · ' + status + '</span></div>' +
+        '<div class="seats" aria-label="' + g.players + ' of ' + g.max + ' players"><span class="seat-dots">' + dots + '</span><span class="mono">' + g.players + '/' + g.max + '</span></div>' +
+        '<button type="button" class="btn btn-ghost btn-small" data-action="join" data-code="' + esc(g.code) + '"' + (g.full ? ' disabled' : '') + '>' + (g.full ? 'Full' : 'Join') + '</button>' +
+        '</div>';
+    }).join('');
   }
 
   function nameValue() {
@@ -195,11 +218,9 @@
     if (!name) { S.error = 'Type your name first.'; renderHome(); return; }
     send({ type: 'create', name: name });
   }
-  function doJoin() {
+  function doJoin(code) {
     const name = nameValue();
-    const code = (document.getElementById('code').value || '').trim().toUpperCase();
     if (!name) { S.error = 'Type your name first.'; renderHome(); return; }
-    if (!code) { S.error = 'Type the game code your host shared.'; renderHome(); return; }
     send({ type: 'join', code: code, name: name });
   }
 
@@ -208,7 +229,7 @@
     const r = S.room;
     const host = isHost();
     S.lobbyKey = JSON.stringify([r.hostId, r.settings, r.players.map((p) => [p.id, p.name, p.color])]);
-    const focusOrder = ['mix', 'language', 'text', 'organisation'];
+    const focusOrder = ['mix', 'language', 'argument', 'organisation'];
     const focusCards = focusOrder.map((f) => {
       const cats = S.cat.focusOptions[f];
       const title = f === 'mix' ? 'Mix' : S.cat.categories[f].name;
@@ -240,7 +261,7 @@
       '</div>' +
       (host ? '<div><button type="button" class="btn btn-gold" data-action="start" style="min-height:62px;padding:0 40px;font-size:19px">Start round</button></div>' : '<p class="waiting">The host chooses the text and features. The round starts for everyone at once.</p>') +
       '</section><aside class="lobby-side">' +
-      '<div class="panel"><span class="kicker">Players · ' + r.players.length + ' of 6</span><div style="margin-top:8px">' + players + '</div></div>' +
+      '<div class="panel"><span class="kicker">Players · ' + r.players.length + ' of 4</span><div style="margin-top:8px">' + players + '</div></div>' +
       '<div class="panel"><span class="kicker">How to play</span><ol class="steps" style="margin-top:14px">' +
       '<li><b>1</b><span><strong style="color:var(--ink)">Claim.</strong> Click a feature in the tray. Hover over it first for a definition.</span></li>' +
       '<li><b>2</b><span><strong style="color:var(--ink)">Hunt.</strong> Click the words, or the sentence, where it appears in the text.</span></li>' +
@@ -666,7 +687,7 @@
       return;
     }
     if (a === 'create') doCreate();
-    if (a === 'join') doJoin();
+    if (a === 'join') doJoin(el.dataset.code);
     if (a === 'leave') send({ type: 'leave' });
     if (a === 'focus') send({ type: 'settings', settings: { focus: el.dataset.focus } });
     if (a === 'speed') send({ type: 'settings', settings: { speed: el.dataset.speed } });

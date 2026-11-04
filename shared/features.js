@@ -9,10 +9,10 @@ const CATEGORIES = {
     color: '#7DB2FF',
     deep: '#2F4F86'
   },
-  text: {
-    id: 'text',
-    name: 'Text',
-    blurb: 'What the writer is doing with ideas: thesis, sources, counterarguments.',
+  argument: {
+    id: 'argument',
+    name: 'Argument',
+    blurb: 'What the writer does with ideas and evidence: thesis, sources, counterarguments.',
     color: '#FFA676',
     deep: '#94502A'
   },
@@ -62,37 +62,37 @@ const FEATURES = {
     ex: 'the results shows → the results show'
   },
   thesis: {
-    name: 'Thesis statement', cat: 'text', pts: 30,
+    name: 'Thesis statement', cat: 'argument', pts: 30,
     def: 'The sentence where the writer states their overall position on the question.',
     ex: 'I argue that…'
   },
   source: {
-    name: 'Source as evidence', cat: 'text', pts: 20,
+    name: 'Source as evidence', cat: 'argument', pts: 20,
     def: 'A cited study or author used to support the writer’s point.',
     ex: 'Smith (2020) found that…; (Lee, 2019)'
   },
   counter: {
-    name: 'Counterargument', cat: 'text', pts: 25,
+    name: 'Counterargument', cat: 'argument', pts: 25,
     def: 'An opposing view that the writer acknowledges.',
     ex: 'Critics argue that…'
   },
   rebuttal: {
-    name: 'Rebuttal', cat: 'text', pts: 25,
+    name: 'Rebuttal', cat: 'argument', pts: 25,
     def: 'The writer’s answer to an opposing view, showing why their position still holds.',
     ex: 'Nevertheless, this overlooks…'
   },
   definition: {
-    name: 'Definition of a key term', cat: 'text', pts: 20,
+    name: 'Definition of a key term', cat: 'argument', pts: 20,
     def: 'A sentence explaining exactly what an important term means in this text.',
     ex: 'X can be defined as…'
   },
   example: {
-    name: 'Example', cat: 'text', pts: 10,
+    name: 'Example', cat: 'argument', pts: 10,
     def: 'A specific case that illustrates a general point.',
     ex: 'For example, …'
   },
   limitation: {
-    name: 'Evaluating a source', cat: 'text', pts: 25,
+    name: 'Evaluating a source', cat: 'argument', pts: 25,
     def: 'A comment on a weakness or limit of the evidence the writer has used.',
     ex: 'However, the sample was small, so…'
   },
@@ -119,9 +119,9 @@ const FEATURES = {
 };
 
 const FOCUS_OPTIONS = {
-  mix: ['language', 'text', 'organisation'],
+  mix: ['language', 'argument', 'organisation'],
   language: ['language'],
-  text: ['text'],
+  argument: ['argument'],
   organisation: ['organisation']
 };
 

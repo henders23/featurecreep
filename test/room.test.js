@@ -38,7 +38,7 @@ test('only the host can change settings or start', () => {
 });
 
 test('tray always holds five tiles from the chosen focus', () => {
-  for (const focus of ['language', 'text', 'organisation', 'mix']) {
+  for (const focus of ['language', 'argument', 'organisation', 'mix']) {
     const { room } = setup(focus);
     assert.strictEqual(room.round.tray.length, TRAY_SIZE);
     for (const tile of room.round.tray) {
@@ -162,4 +162,18 @@ test('features missed last round come back more often', () => {
   room.start('a');
   assert.ok(room.review.length > 0);
   for (const fid of room.review) assert.strictEqual(FEATURES[fid].cat, 'language');
+});
+
+test('a game holds four players; the fifth is turned away until someone leaves', () => {
+  const { RoomManager } = require('../server/rooms');
+  const manager = new RoomManager();
+  const room = manager.create();
+  for (const id of ['a', 'b', 'c', 'd']) assert.ok(room.addPlayer(id, id, () => {}).player);
+  assert.match(room.addPlayer('e', 'e', () => {}).error, /full/);
+  assert.deepStrictEqual(
+    manager.list().map((g) => [g.players, g.max, g.full]),
+    [[4, 4, true]]
+  );
+  room.removePlayer('b');
+  assert.ok(room.addPlayer('e', 'e', () => {}).player);
 });

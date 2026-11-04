@@ -12,8 +12,9 @@ After each round, everyone steps through three feedback screens:
 
 ## Playing
 
-- One person creates a game and shares the code (for example `HEDGE-42`). Up to six people join.
-- The host chooses what to hunt for: **Language**, **Text**, **Organisation** or a **Mix**, then the text (or a random one) and the speed.
+- On the start screen everyone types their name, then either starts a new game or joins one from the list of open games. The list shows how many players each game has; a game holds four players and shows as full until someone leaves.
+- The person who started the game is the host and decides when it starts.
+- The host chooses what to hunt for: **Language**, **Argument**, **Organisation** or a **Mix**, then the text (or a random one) and the speed.
 - Everyone sees the same text and the same tray of five features. When a feature is claimed, a new one replaces it. Each player hunts one feature at a time; claiming another drops the one you were holding.
 - The host can pause the round.
 

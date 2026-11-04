@@ -22,6 +22,12 @@ function createServer(opts) {
   }
   const pushState = (room) => broadcast(room, room.state());
 
+  // Everyone on the start screen sees the list of games and how full they are.
+  function pushGames() {
+    const json = JSON.stringify({ type: 'games', games: manager.list() });
+    for (const ws of wss.clients) if (!ws.room && ws.readyState === 1) ws.send(json);
+  }
+
   function leave(ws) {
     const room = ws.room;
     if (!room) return;
@@ -50,6 +56,7 @@ function createServer(opts) {
     ws.isAlive = true;
     ws.on('pong', () => { ws.isAlive = true; });
     ws.send(JSON.stringify(Object.assign({ type: 'welcome', you: ws.playerId }, info)));
+    ws.send(JSON.stringify({ type: 'games', games: manager.list() }));
 
     ws.on('message', (data) => {
       let msg;
@@ -110,9 +117,10 @@ function createServer(opts) {
         default:
           break;
       }
+      if (msg.type !== 'ping' && msg.type !== 'claim' && msg.type !== 'find') pushGames();
     });
 
-    ws.on('close', () => leave(ws));
+    ws.on('close', () => { leave(ws); pushGames(); });
   });
 
   const ticker = setInterval(() => {
@@ -120,6 +128,7 @@ function createServer(opts) {
       if (room.tick()) {
         broadcast(room, room.results);
         pushState(room);
+        pushGames();
       }
     }
   }, options.tickMs || 250);

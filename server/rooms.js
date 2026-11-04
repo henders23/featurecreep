@@ -8,7 +8,7 @@ const { compile, publicText } = require('./textEngine');
 
 const COMPILED = TEXTS.map(compile);
 const TRAY_SIZE = 5;
-const MAX_PLAYERS = 6;
+const MAX_PLAYERS = 4;
 const COOLDOWN_MS = 2500;
 const LEAD_MS = 3000; // countdown before the text starts moving
 const SPEEDS = { gentle: 7.5, brisk: 12 }; // characters of text per second
@@ -44,7 +44,7 @@ class Room {
   // ---------- players ----------
 
   addPlayer(id, name, send) {
-    if (this.players.size >= MAX_PLAYERS) return { error: 'That room is full (six players).' };
+    if (this.players.size >= MAX_PLAYERS) return { error: 'That game is full. Four players at most.' };
     const used = new Set([...this.players.values()].map((p) => p.color));
     const color = COLORS.find((c) => !used.has(c)) || COLORS[0];
     const player = { id: id, name: cleanName(name), color: color, send: send, score: 0, claim: null, cooldownUntil: 0, finds: [] };
@@ -357,6 +357,21 @@ class RoomManager {
   removeIfEmpty(room) {
     if (room && room.isEmpty()) this.rooms.delete(room.code);
   }
+
+  // Games shown on the start screen, newest first.
+  list() {
+    return Array.from(this.rooms.values()).reverse().map((room) => {
+      const host = room.players.get(room.hostId);
+      return {
+        code: room.code,
+        host: host ? host.name : '',
+        players: room.players.size,
+        max: MAX_PLAYERS,
+        full: room.players.size >= MAX_PLAYERS,
+        phase: room.phase
+      };
+    });
+  }
 }
 
 function catalogue() {
@@ -369,4 +384,4 @@ function catalogue() {
   };
 }
 
-module.exports = { Room, RoomManager, catalogue, COOLDOWN_MS, LEAD_MS, TRAY_SIZE, SPEEDS };
+module.exports = { Room, RoomManager, catalogue, COOLDOWN_MS, LEAD_MS, TRAY_SIZE, SPEEDS, MAX_PLAYERS };
