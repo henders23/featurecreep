@@ -1,0 +1,19 @@
+{
+  "name": "featurecreep",
+  "version": "1.0.0",
+  "description": "Feature Creep: a multiplayer reading hunt for features of academic writing",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "express": "^4.22.3",
+    "ws": "^8.22.1"
+  }
+}
