@@ -6,22 +6,22 @@ const CATEGORIES = {
     id: 'language',
     name: 'Language',
     blurb: 'Word- and sentence-level choices: hedging, passives, grammar.',
-    color: '#7DB2FF',
-    deep: '#2F4F86'
+    color: '#2F5FA8',
+    tint: '#E3EBF8'
   },
   argument: {
     id: 'argument',
     name: 'Argument',
     blurb: 'What the writer does with ideas and evidence: thesis, sources, counterarguments.',
-    color: '#FFA676',
-    deep: '#94502A'
+    color: '#B5462B',
+    tint: '#F7E3DC'
   },
   organisation: {
     id: 'organisation',
     name: 'Organisation',
     blurb: 'How the text holds together: topic sentences, signposts, links.',
-    color: '#72D69E',
-    deep: '#2E7050'
+    color: '#3B7D4F',
+    tint: '#E0EFE4'
   }
 };
 

@@ -12,7 +12,7 @@ const MAX_PLAYERS = 4;
 const COOLDOWN_MS = 2500;
 const LEAD_MS = 3000; // countdown before the text starts moving
 const SPEEDS = { gentle: 7.5, brisk: 12 }; // characters of text per second
-const COLORS = ['#E8B33A', '#5BC0AA', '#F08A6C', '#A99BF0', '#E07BB5', '#9CCB5B'];
+const COLORS = ['#A16207', '#0F766E', '#6D28D9', '#BE185D']; // one per seat, readable on white
 const CODE_WORDS = ['HEDGE', 'THESIS', 'CLAUSE', 'SOURCE', 'TOPIC', 'CITE', 'NOUN', 'VERB', 'ESSAY', 'GLOSS'];
 
 function textById(id) {

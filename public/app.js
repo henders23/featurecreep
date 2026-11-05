@@ -10,7 +10,7 @@
     text: null,           // the round's text (words only)
     focusIds: [],
     results: null,        // end-of-round results
-    fbStep: 0,            // 0 = scores (B), 1 = the text (A), 2 = blind spots (D)
+    fbStep: 0,            // 0 = scores, 1 = the text, 2 = blind spots
     screen: null,
     clockOffset: 0,
     error: '',
@@ -31,9 +31,12 @@
     return 'rgba(' + (n >> 16) + ', ' + ((n >> 8) & 255) + ', ' + (n & 255) + ', ' + a + ')';
   }
   function initials(name, isMe) {
-    if (isMe) return 'YOU';
+    if (isMe) return 'You';
     const parts = String(name).trim().split(/\s+/);
     return (parts.length > 1 ? parts[0][0] + parts[1][0] : String(name).slice(0, 2)).toUpperCase();
+  }
+  function avatar(p, isMe) {
+    return '<span class="avatar" style="background:' + rgba(p.color, 0.14) + ';color:' + p.color + '">' + esc(initials(p.name, isMe)) + '</span>';
   }
   function feature(fid) { return S.cat.features[fid]; }
   function category(fid) { return S.cat.categories[feature(fid).cat]; }
@@ -58,12 +61,11 @@
   function saveName(n) {
     try { localStorage.setItem('fc-name', n); } catch (e) { /* ignore */ }
   }
-  const logo = (cls) => '<div class="logo ' + (cls || '') + '"><span>Feature</span><span class="creep"><span>C</span><span>r</span><span>e</span><span>e</span><span>p</span></span></div>';
-  const catIcon = (catId) => {
-    if (catId === 'language') return '<span class="aa">Aa</span>';
-    if (catId === 'argument') return '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#10131A" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M4 6H20M4 11H20M4 16H14"></path></svg>';
-    return '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#10131A" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1"></rect><rect x="3" y="11" width="12" height="4" rx="1"></rect><rect x="3" y="17" width="15" height="4" rx="1"></rect></svg>';
-  };
+  const brand = (big) => '<div class="brand' + (big ? ' big' : '') + '"><span class="brand-mark">Fc</span>Feature Creep</div>';
+  const legendHtml = (cats) => cats.map((c) => {
+    const k = S.cat.categories[c];
+    return '<span><span class="sq" style="background:' + k.color + '"></span>' + esc(k.name) + '</span>';
+  }).join('');
 
   // ---------------------------------------------------------------- connection
   function connect() {
@@ -162,7 +164,7 @@
   function render() {
     S.screen = screenFor();
     if (S.screen !== 'game') S.game = null;
-    if (S.screen === 'loading') app.innerHTML = '<div class="home"><div class="kicker">Connecting…</div></div>';
+    if (S.screen === 'loading') app.innerHTML = '<div class="home"><p class="muted">Connecting…</p></div>';
     if (S.screen === 'home') renderHome();
     if (S.screen === 'lobby') renderLobby();
     if (S.screen === 'game') buildGame();
@@ -173,15 +175,13 @@
   function renderHome() {
     app.innerHTML =
       '<main class="home"><div class="home-inner">' +
-      '<div class="home-hero">' +
-      '<span class="kicker gold">A reading hunt for 1–4 players</span>' +
-      logo('big') +
-      '<p>An academic essay rises up the screen towards a shredder. Claim features of academic writing from the tray, then find them in the text before they’re gone.</p>' +
+      '<div class="home-hero">' + brand(true) +
+      '<p>A reading game for up to four players. An academic essay scrolls up towards a shredder; claim a feature of academic writing, then find it in the text before it’s gone.</p>' +
       '</div>' +
-      '<div class="field" style="max-width:420px"><label for="name">Your name</label><input id="name" class="input" maxlength="18" autocomplete="nickname" value="' + esc(savedName()) + '" placeholder="e.g. Amira"></div>' +
-      '<div class="home-forms">' +
-      '<div class="panel form-card"><h2 style="font-size:24px">Start a new game</h2><p style="margin:0;color:var(--soft);font-size:15px;line-height:1.5">You’ll host it: you choose the text and the features, and you decide when the game starts.</p><button type="button" class="btn btn-gold" data-action="create">Start a new game</button></div>' +
-      '<div class="panel form-card"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px"><h2 style="font-size:24px">Join a game</h2><span class="kicker">Up to 4 players</span></div><div id="games" class="games"></div></div>' +
+      '<div class="field" style="max-width:360px"><label for="name">Your name</label><input id="name" class="input" maxlength="18" autocomplete="nickname" value="' + esc(savedName()) + '" placeholder="e.g. Amira"></div>' +
+      '<div class="home-grid">' +
+      '<div class="panel"><div class="panel-head">Start a new game</div><div class="card-body"><p>You’ll host the game: you choose the text and the features, and you decide when it starts.</p><button type="button" class="btn btn-primary" data-action="create">Start a new game</button></div></div>' +
+      '<div class="panel"><div class="panel-head">Join a game <span class="sub">Up to 4 players each</span></div><div id="games" class="games"></div></div>' +
       '</div>' +
       '<p class="error" role="alert">' + esc(S.error) + '</p>' +
       '</div></main>';
@@ -202,7 +202,7 @@
         '<div class="game-info"><strong>' + esc(g.host ? g.host + '’s game' : 'Game') + '</strong>' +
         '<span><span class="mono">' + esc(g.code) + '</span> · ' + status + '</span></div>' +
         '<div class="seats" aria-label="' + g.players + ' of ' + g.max + ' players"><span class="seat-dots">' + dots + '</span><span class="mono">' + g.players + '/' + g.max + '</span></div>' +
-        '<button type="button" class="btn btn-ghost btn-small" data-action="join" data-code="' + esc(g.code) + '"' + (g.full ? ' disabled' : '') + '>' + (g.full ? 'Full' : 'Join') + '</button>' +
+        '<button type="button" class="btn btn-secondary btn-small" data-action="join" data-code="' + esc(g.code) + '"' + (g.full ? ' disabled' : '') + '>' + (g.full ? 'Full' : 'Join') + '</button>' +
         '</div>';
     }).join('');
   }
@@ -233,41 +233,41 @@
     const focusCards = focusOrder.map((f) => {
       const cats = S.cat.focusOptions[f];
       const title = f === 'mix' ? 'Mix' : S.cat.categories[f].name;
-      const blurb = f === 'mix' ? 'A bit of everything: all three kinds of feature in one round.' : S.cat.categories[f].blurb;
+      const blurb = f === 'mix' ? 'All three kinds of feature in one round.' : S.cat.categories[f].blurb;
       const names = Object.keys(S.cat.features).filter((id) => cats.indexOf(S.cat.features[id].cat) >= 0).map((id) => S.cat.features[id].name);
       return '<button type="button" class="focus-card" data-action="focus" data-focus="' + f + '" aria-pressed="' + (r.settings.focus === f) + '"' + (host ? '' : ' disabled') + '>' +
-        '<span class="swatches">' + cats.map((c) => '<span style="background:' + S.cat.categories[c].color + '"></span>').join('') + '</span>' +
+        '<span class="swatches">' + cats.map((c) => '<span class="sq" style="background:' + S.cat.categories[c].color + '"></span>').join('') + '</span>' +
         '<strong>' + title + '</strong><span class="blurb">' + esc(blurb) + '</span>' +
-        '<span class="list">' + esc(f === 'mix' ? 'All 18 features' : names.join(' · ')) + '</span></button>';
+        '<span class="list">' + esc(f === 'mix' ? 'All 18 features' : names.join(', ')) + '</span></button>';
     }).join('');
-    const textOptions = '<option value="random"' + (r.settings.textId === 'random' ? ' selected' : '') + '>Surprise me (random text)</option>' +
-      S.cat.texts.map((t) => '<option value="' + t.id + '"' + (r.settings.textId === t.id ? ' selected' : '') + '>' + esc(t.title) + ' · ' + esc(t.discipline) + '</option>').join('');
+    const textOptions = '<option value="random"' + (r.settings.textId === 'random' ? ' selected' : '') + '>Random text</option>' +
+      S.cat.texts.map((t) => '<option value="' + t.id + '"' + (r.settings.textId === t.id ? ' selected' : '') + '>' + esc(t.title) + ' (' + esc(t.discipline) + ')</option>').join('');
     const speedButtons = S.cat.speeds.map((s) => '<button type="button" data-action="speed" data-speed="' + s + '" aria-pressed="' + (r.settings.speed === s) + '"' + (host ? '' : ' disabled') + '>' + (s === 'gentle' ? 'Gentle · about 3 min' : 'Brisk · about 2 min') + '</button>').join('');
     const players = r.players.map((p) =>
-      '<div class="player-row"><span class="avatar" style="background:' + p.color + '">' + esc(initials(p.name, p.id === S.me)) + '</span>' +
-      '<span style="flex:1;font-size:17px;font-weight:600">' + esc(p.name) + (p.id === S.me ? ' <span style="color:var(--muted);font-weight:400">(you)</span>' : '') + '</span>' +
-      (p.id === r.hostId ? '<span class="kicker gold" style="font-size:10px">HOST</span>' : '') + '</div>').join('');
+      '<div class="player-row">' + avatar(p, p.id === S.me) +
+      '<span class="name">' + esc(p.name) + (p.id === S.me ? ' <span class="muted" style="font-weight:400">(you)</span>' : '') + '</span>' +
+      (p.id === r.hostId ? '<span class="badge">Host</span>' : '') + '</div>').join('');
 
     app.innerHTML =
       '<main class="page">' +
-      '<div class="lobby-head"><div style="display:flex;flex-direction:column;gap:12px">' + logo() +
-      '<span class="kicker">' + (host ? 'You’re the host. Choose the round, then start.' : 'Waiting for the host to start the round.') + '</span></div>' +
-      '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px"><span class="kicker">Game code — share it</span><span class="room-code">' + esc(r.code) + '</span></div></div>' +
+      '<header class="topbar"><div class="topbar-left">' + brand() + '<span class="divider"></span>' +
+      '<span class="muted" style="font-size:14px">Game</span><span class="code">' + esc(r.code) + '</span></div>' +
+      '<div class="topbar-right"><span class="muted" style="font-size:14px">' + (host ? 'You’re the host. Choose the round, then start it.' : 'Waiting for the host to start the round.') + '</span>' +
+      '<button type="button" class="btn btn-secondary btn-small" data-action="leave">Leave game</button></div></header>' +
       '<div class="lobby-grid"><section class="lobby-main">' +
-      '<div class="panel" style="display:flex;flex-direction:column;gap:16px"><div><span class="kicker">What will you hunt for?</span></div><div class="focus-grid">' + focusCards + '</div></div>' +
-      '<div class="panel settings-row">' +
+      '<div class="panel"><div class="panel-head">What will you hunt for?</div><div class="focus-grid">' + focusCards + '</div></div>' +
+      '<div class="panel"><div class="panel-head">Round settings</div><div class="settings-grid">' +
       '<div class="field"><label for="textSel">Text</label><select id="textSel" class="select"' + (host ? '' : ' disabled') + '>' + textOptions + '</select></div>' +
       '<div class="field"><label>Speed</label><div class="seg-toggle">' + speedButtons + '</div></div>' +
-      '</div>' +
-      (host ? '<div><button type="button" class="btn btn-gold" data-action="start" style="min-height:62px;padding:0 40px;font-size:19px">Start round</button></div>' : '<p class="waiting">The host chooses the text and features. The round starts for everyone at once.</p>') +
+      '</div></div>' +
+      (host ? '<div><button type="button" class="btn btn-primary btn-large" data-action="start">Start the game</button></div>' : '<p class="waiting">The round starts for everyone at once when the host is ready.</p>') +
       '</section><aside class="lobby-side">' +
-      '<div class="panel"><span class="kicker">Players · ' + r.players.length + ' of 4</span><div style="margin-top:8px">' + players + '</div></div>' +
-      '<div class="panel"><span class="kicker">How to play</span><ol class="steps" style="margin-top:14px">' +
-      '<li><b>1</b><span><strong style="color:var(--ink)">Claim.</strong> Click a feature in the tray. Hover over it first for a definition.</span></li>' +
-      '<li><b>2</b><span><strong style="color:var(--ink)">Hunt.</strong> Click the words, or the sentence, where it appears in the text.</span></li>' +
-      '<li><b>3</b><span><strong style="color:var(--ink)">Score.</strong> Right first time scores. A wrong click freezes you for a moment, so read before you click.</span></li>' +
+      '<div class="panel"><div class="panel-head">Players <span class="sub">' + r.players.length + ' of 4</span></div>' + players + '</div>' +
+      '<div class="panel"><div class="panel-head">How to play</div><ol class="steps">' +
+      '<li><b>1</b><span><strong>Claim.</strong> Click a feature in the tray. Hover over it first for a definition.</span></li>' +
+      '<li><b>2</b><span><strong>Find.</strong> Click the words, or the sentence, where it appears in the text.</span></li>' +
+      '<li><b>3</b><span><strong>Score.</strong> Right first time scores. A wrong click pauses you briefly, so read before you click.</span></li>' +
       '</ol></div>' +
-      '<button type="button" class="btn btn-ghost btn-small" data-action="leave" style="align-self:flex-start">Leave game</button>' +
       '</aside></div></main>';
 
     const sel = document.getElementById('textSel');
@@ -277,45 +277,47 @@
   // ---------------------------------------------------------------- game
   function buildGame() {
     const t = S.text;
-    const sheets = t.paragraphs.map((p, i) =>
-      '<article class="sheet"><span class="tab"><b>¶' + (i + 1) + '</b>' + esc(p.label) + '</span><p>' +
+    const paras = t.paragraphs.map((p, i) =>
+      '<div class="para"><span class="label">Paragraph ' + (i + 1) + ' · ' + esc(p.label) + '</span><p>' +
       p.segs.map((s) => '<a class="seg" href="#" data-action="find" data-seg="' + s.i + '">' + esc(s.t) + '</a>').join('') +
-      '</p></article>').join('');
-    const legendCats = Array.from(new Set(S.focusIds.map((fid) => feature(fid).cat)));
-    const legend = legendCats.map((c) => '<span style="color:' + S.cat.categories[c].color + '"><i style="background:' + S.cat.categories[c].color + '"></i>' + esc(S.cat.categories[c].name.toUpperCase()) + '</span>').join('');
+      '</p></div>').join('');
+    const cats = Array.from(new Set(S.focusIds.map((fid) => feature(fid).cat)));
+    const focusName = cats.length > 1 ? 'Mix' : S.cat.categories[cats[0]].name;
+    const speed = S.room.settings.speed === 'brisk' ? 'Brisk' : 'Gentle';
 
     app.innerHTML =
       '<main class="page">' +
-      '<header class="game-head">' +
-      '<div style="display:flex;align-items:center;gap:22px;flex-wrap:wrap">' + logo() +
-      '<div class="text-meta"><span class="kicker">' + esc(t.discipline) + '</span><strong>' + esc(t.title) + '</strong></div></div>' +
-      '<div class="progress"><div style="display:flex;justify-content:space-between" class="kicker"><span>Text fed through</span><span id="pct" style="color:var(--ink)">0%</span></div>' +
-      '<div class="progress-bars" id="bars">' + '<span></span>'.repeat(20) + '</div></div>' +
-      '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">' +
-      '<div class="score-box"><span class="kicker" style="font-size:10px">Your score</span><span id="myScore">0</span></div>' +
-      (isHost() ? '<button type="button" class="btn btn-ghost btn-small" data-action="pause" id="pauseBtn">Pause</button>' : '') +
+      '<header class="topbar"><div class="topbar-left">' + brand() + '<span class="divider"></span>' +
+      '<span style="font-size:14px;color:var(--soft)">' + esc(t.title) + '</span>' +
+      '<span class="tag-chip">' + esc(focusName) + ' · ' + speed + '</span></div>' +
+      '<div class="topbar-right">' +
+      '<div class="progress"><span>Progress</span><span class="progress-track"><span id="bar"></span></span><span class="mono" id="pct">0%</span></div>' +
+      '<span class="score">Score <strong id="myScore">0</strong></span>' +
+      (isHost() ? '<button type="button" class="btn btn-secondary btn-small" data-action="pause" id="pauseBtn">Pause</button>' : '') +
       '</div></header>' +
       '<div class="game-body">' +
-      '<section class="well-wrap" aria-label="The text"><div class="well" id="well">' +
-      '<div class="column" id="column">' + sheets + '</div>' +
-      '<div class="shredder"><span class="rollers" aria-hidden="true"></span><span class="mono">THE SHREDDER</span><span class="rollers rev" aria-hidden="true"></span></div>' +
-      '<div class="feeder">TEXT FEEDS IN</div>' +
-      '<div class="pill" id="pill"></div>' +
-      '<div class="overlay" id="overlay" hidden></div>' +
-      '</div></section>' +
-      '<aside class="board" aria-label="Leaderboard"><span class="kicker">Leaderboard</span><div class="board-list" id="board"></div></aside>' +
+      '<section class="doc" id="doc" aria-label="The text">' +
+      '<div class="status" id="status"><span class="status-main" id="statusMain"></span><span id="statusSide" class="muted">Text leaves at the top</span></div>' +
+      '<div class="well" id="well"><div class="column" id="column">' + paras + '</div>' +
+      '<div class="overlay" id="overlay" hidden></div></div>' +
+      '</section>' +
+      '<aside class="panel board" aria-label="Players"><div class="panel-head">Players <span class="sub" id="playerCount"></span></div><div class="board-list" id="board"></div></aside>' +
       '</div>' +
-      '<section class="tray" aria-label="The tray"><div class="legend">' + legend + '</div><div class="tiles" id="tiles"></div></section>' +
+      '<section class="panel" aria-label="Features to claim"><div class="panel-head">Claim a feature<span class="legend">' + legendHtml(cats) + '</span></div><div class="tiles" id="tiles"></div></section>' +
       '</main>';
 
     S.game = {
+      doc: document.getElementById('doc'),
       well: document.getElementById('well'),
       column: document.getElementById('column'),
-      pill: document.getElementById('pill'),
+      status: document.getElementById('status'),
+      statusMain: document.getElementById('statusMain'),
+      statusSide: document.getElementById('statusSide'),
       overlay: document.getElementById('overlay'),
       board: document.getElementById('board'),
+      playerCount: document.getElementById('playerCount'),
       tiles: document.getElementById('tiles'),
-      bars: Array.from(document.getElementById('bars').children),
+      bar: document.getElementById('bar'),
       pct: document.getElementById('pct'),
       score: document.getElementById('myScore'),
       pauseBtn: document.getElementById('pauseBtn'),
@@ -323,10 +325,9 @@
       trayKeys: '',
       seenKeys: new Set(),
       marked: new Set(),
-      lit: -1,
-      pillText: '',
-      overlayText: '',
-      innerH: 0
+      pctShown: -1,
+      statusHtml: '',
+      overlayText: ''
     };
     app.querySelectorAll('.seg').forEach((el) => { S.game.segEls[el.dataset.seg] = el; });
     updateGame();
@@ -347,39 +348,41 @@
         const f = feature(tile.fid);
         const c = category(tile.fid);
         const fresh = !first && !g.seenKeys.has(tile.key);
-        return '<div class="tile-wrap"><button type="button" class="tile' + (fresh ? ' fresh' : '') + '" data-action="claim" data-key="' + tile.key + '" style="--cat:' + c.color + ';--deep:' + c.deep + '">' +
-          '<span class="tile-top"><span class="tile-cat">' + catIcon(f.cat) + esc(c.name) + '</span><span class="coin">+' + f.pts + '</span></span>' +
-          '<span class="tile-body"><span class="tile-name">' + esc(f.name) + '</span><span class="tile-foot">' + (fresh ? 'JUST ARRIVED' : 'CLICK TO CLAIM') + '</span></span></button>' +
-          '<div class="tip" style="--cat:' + c.color + '"><span class="k">' + esc(c.name) + ' · ' + f.pts + ' points</span><strong>' + esc(f.name) + '</strong><span class="d">' + esc(f.def) + '</span><span class="e">e.g. ' + esc(f.ex) + '</span></div></div>';
+        return '<div class="tile-wrap" style="--cat:' + c.color + ';--tint:' + c.tint + '"><button type="button" class="tile' + (fresh ? ' fresh' : '') + '" data-action="claim" data-key="' + tile.key + '">' +
+          '<span class="tile-top"><span>' + esc(c.name) + '</span><span class="pts">+' + f.pts + '</span></span>' +
+          '<span class="tile-name">' + esc(f.name) + '</span>' +
+          '<span class="tile-foot">' + (fresh ? 'New' : 'Click to claim') + '</span></button>' +
+          '<div class="tip"><span class="k">' + esc(c.name) + ' · ' + f.pts + ' points</span><strong>' + esc(f.name) + '</strong><span class="d">' + esc(f.def) + '</span><span class="e">e.g. ' + esc(f.ex) + '</span></div></div>';
       }).join('');
       r.tray.forEach((t) => g.seenKeys.add(t.key));
     }
 
-    // leaderboard
+    // players
     const top = Math.max(30, ...S.room.players.map((p) => p.score));
     const now = serverNow();
+    g.playerCount.textContent = S.room.players.length + ' of 4';
     g.board.innerHTML = S.room.players.slice().sort((a, b) => b.score - a.score).map((p) => {
       const mine = p.id === S.me;
       const frozen = p.cooldownUntil > now;
-      let status = p.claim ? 'Hunting: ' + feature(p.claim).name : (mine ? 'Browsing the tray' : 'Reading');
-      let col = p.claim ? (mine ? 'var(--gold)' : 'var(--soft)') : 'var(--muted)';
-      if (frozen) { status = 'Frozen for a moment'; col = 'var(--red)'; }
-      return '<div class="board-card' + (mine ? ' me' : '') + '"><div class="board-top"><span class="avatar" style="background:' + p.color + '">' + esc(initials(p.name, mine)) + '</span>' +
+      let status = p.claim ? 'Hunting: ' + feature(p.claim).name : (mine ? 'Choosing a feature' : 'Reading');
+      let col = p.claim && mine ? p.color : 'var(--muted)';
+      if (frozen) { status = 'Paused for a moment'; col = 'var(--red)'; }
+      return '<div class="board-row' + (mine ? ' me' : '') + '"><div class="board-top">' + avatar(p, mine) +
         '<span class="board-name"><strong>' + esc(mine ? 'You' : p.name) + '</strong><span style="color:' + col + '">' + esc(status) + '</span></span>' +
         '<span class="board-score">' + p.score + '</span></div>' +
-        '<div class="bar"><span style="width:' + Math.max(3, Math.round(p.score / top * 100)) + '%;background:' + p.color + '"></span></div></div>';
+        '<div class="bar"><span style="width:' + Math.max(2, Math.round(p.score / top * 100)) + '%;background:' + p.color + '"></span></div></div>';
     }).join('');
     g.score.textContent = meP ? meP.score : 0;
 
-    // marks: who found what, shown in their colour
+    // who found what, in their colour
     const marked = new Set();
     r.marks.forEach((m) => {
       const p = player(m.by);
-      const color = p ? p.color : '#888888';
+      const color = p ? p.color : '#71717A';
       m.segs.forEach((i) => {
         const el = g.segEls[i];
         if (!el) return;
-        el.style.background = rgba(color, 0.34);
+        el.style.background = rgba(color, 0.14);
         el.style.boxShadow = 'inset 0 -2px 0 ' + color;
         marked.add(String(i));
       });
@@ -395,24 +398,17 @@
     if (msg.ok) {
       flash(msg.seg, 'ok');
       if (g) {
-        const pop = document.createElement('div');
-        pop.className = 'gain';
-        pop.textContent = '+' + msg.pts;
-        g.well.appendChild(pop);
-        setTimeout(() => pop.remove(), 1500);
+        g.statusSide.innerHTML = '<span class="gain">Found · +' + msg.pts + '</span>';
+        clearTimeout(g.gainTimer);
+        g.gainTimer = setTimeout(() => { g.statusSide.textContent = 'Text leaves at the top'; }, 1500);
       }
     } else if (msg.reason === 'wrong') {
       flash(msg.seg, 'bad');
-      if (g) {
-        g.well.classList.remove('shake');
-        void g.well.offsetWidth;
-        g.well.classList.add('shake');
-      }
     } else if (msg.reason === 'taken') {
       flash(msg.seg, 'bad');
       toast('Someone already found that one. Look for another.');
     } else if (msg.reason === 'no-claim') {
-      toast('Claim a feature from the tray first, then find it here.');
+      toast('Claim a feature first, then find it in the text.');
     }
   }
 
@@ -435,35 +431,32 @@
       const offset = START_OFFSET + progress * (wellH + innerH - START_OFFSET);
       g.column.style.transform = 'translateY(' + (-offset).toFixed(1) + 'px)';
 
-      const lit = Math.round(progress * 20);
-      if (lit !== g.lit) {
-        g.lit = lit;
-        g.bars.forEach((b, i) => { b.className = i < lit ? (i >= 15 ? 'on late' : 'on') : ''; });
-        g.pct.textContent = Math.round(progress * 100) + '%';
+      const pct = Math.round(progress * 100);
+      if (pct !== g.pctShown) {
+        g.pctShown = pct;
+        g.bar.style.width = pct + '%';
+        g.pct.textContent = pct + '%';
       }
 
       const meP = player(S.me);
       const frozenFor = meP ? meP.cooldownUntil - now : 0;
-      let pillText = 'Click a feature in the tray below to claim it';
-      let pillCls = 'pill';
-      let wellCls = '';
+      let html = '<span class="dot" style="background:var(--faint)"></span>Click a feature below to claim it';
+      let frozen = false;
       if (meP && meP.claim) {
         if (frozenFor > 0) {
-          pillText = 'Not there. Look again in ' + Math.ceil(frozenFor / 1000) + 's';
-          pillCls = 'pill frozen'; wellCls = 'frozen';
+          html = 'Not there. Try again in ' + Math.ceil(frozenFor / 1000) + 's';
+          frozen = true;
         } else {
-          pillText = 'Hunting: ' + feature(meP.claim).name + ' · click it in the text';
-          pillCls = 'pill hunting'; wellCls = 'hunting';
+          html = '<span class="dot" style="background:' + category(meP.claim).color + '"></span>Hunting <strong>' + esc(feature(meP.claim).name) + '</strong> · click it in the text';
         }
       }
-      if (pillText !== g.pillText) { g.pillText = pillText; g.pill.textContent = pillText; }
-      if (g.pill.className !== pillCls) g.pill.className = pillCls;
-      g.well.classList.toggle('hunting', wellCls === 'hunting');
-      g.well.classList.toggle('frozen', wellCls === 'frozen');
+      if (html !== g.statusHtml) { g.statusHtml = html; g.statusMain.innerHTML = html; }
+      g.status.classList.toggle('frozen', frozen);
+      g.doc.classList.toggle('frozen', frozen);
 
       let overlay = '';
-      if (elapsed < 0) overlay = '<span class="kicker gold">Get ready · claim a feature now</span><span class="big">' + Math.ceil(-elapsed / 1000) + '</span>';
-      else if (r.pausedAt) overlay = '<span style="font-size:56px;font-weight:700">Paused</span><span class="kicker">The host has paused the round</span>';
+      if (elapsed < 0) overlay = '<span class="big">' + Math.ceil(-elapsed / 1000) + '</span><span class="msg">Get ready. You can claim a feature now.</span>';
+      else if (r.pausedAt) overlay = '<h2>Paused</h2><span class="msg">The host has paused the round.</span>';
       if (overlay !== g.overlayText) {
         g.overlayText = overlay;
         g.overlay.innerHTML = overlay;
@@ -477,23 +470,22 @@
   function renderFeedback() {
     const R = S.results;
     const steps = ['Scores', 'In the text', 'Blind spots'];
-    const titles = ['Shredded. Here’s the haul.', 'Every feature, in the text', 'Your table’s blind spots'];
+    const titles = ['Round results', 'Every feature, in the text', 'Blind spots'];
     let body = '';
     if (S.fbStep === 0) body = feedbackScores(R);
     if (S.fbStep === 1) body = feedbackText(R);
     if (S.fbStep === 2) body = feedbackSpots(R);
 
     let nav = '';
-    if (S.fbStep > 0) nav += '<button type="button" class="btn btn-ghost" data-action="fb-back">Back</button>';
-    if (S.fbStep === 0) nav += '<button type="button" class="btn btn-gold" data-action="fb-next">Next: see it in the text</button>';
-    if (S.fbStep === 1) nav += '<button type="button" class="btn btn-gold" data-action="fb-next">Next: blind spots</button>';
+    if (S.fbStep > 0) nav += '<button type="button" class="btn btn-secondary" data-action="fb-back">Back</button>';
+    if (S.fbStep === 0) nav += '<button type="button" class="btn btn-primary" data-action="fb-next">Next: see it in the text</button>';
+    if (S.fbStep === 1) nav += '<button type="button" class="btn btn-primary" data-action="fb-next">Next: blind spots</button>';
 
     app.innerHTML =
       '<main class="page">' +
-      '<div class="fb-head"><div style="display:flex;flex-direction:column;gap:10px">' +
-      '<span class="kicker red">Round over · ' + esc(R.text.title) + ' · ' + esc(R.text.discipline) + '</span>' +
-      '<h1>' + titles[S.fbStep] + '</h1></div>' +
-      '<div class="fb-steps">' + steps.map((s, i) => '<span class="' + (i === S.fbStep ? 'on' : '') + '">' + (i + 1) + ' · ' + s.toUpperCase() + '</span>').join('') + '</div></div>' +
+      '<header class="topbar"><div class="topbar-left">' + brand() + '<span class="divider"></span><span style="font-size:14px;color:var(--soft)">' + esc(R.text.title) + '</span><span class="tag-chip">' + esc(R.text.discipline) + '</span></div>' +
+      '<div class="stepper">' + steps.map((s, i) => '<span class="' + (i === S.fbStep ? 'on' : '') + '">' + (i + 1) + '. ' + s + '</span>').join('') + '</div></header>' +
+      '<div class="fb-head"><h1>' + titles[S.fbStep] + '</h1></div>' +
       body +
       (nav ? '<div class="fb-nav">' + nav + '</div>' : '') +
       '</main>';
@@ -501,56 +493,48 @@
   }
 
   function resultPlayer(R, id) {
-    return R.players.find((p) => p.id === id) || { name: 'Someone who left', color: '#888888', id: id };
+    return R.players.find((p) => p.id === id) || { name: 'Someone who left', color: '#71717A', id: id };
   }
-
+  function who(p) { return p.id === S.me ? 'You' : p.name; }
   function quoteShort(q) {
     return q.length > 60 ? q.slice(0, 57).replace(/\s+\S*$/, '') + '…' : q;
+  }
+  function missedCounts(R) {
+    const counts = {};
+    R.missed.forEach((m) => { counts[m.fid] = (counts[m.fid] || 0) + 1; });
+    return counts;
   }
 
   function feedbackScores(R) {
     const ps = R.players;
-    const order = [ps[1], ps[0], ps[2]].filter(Boolean);
-    const heights = { 0: 180, 1: 130, 2: 100 };
-    const places = ['1ST', '2ND', '3RD'];
-    const podium = order.map((p) => {
-      const rank = ps.indexOf(p);
-      const first = rank === 0;
-      return '<div class="podium-col">' +
-        (first ? '<svg width="40" height="28" viewBox="0 0 40 28" aria-hidden="true"><path d="M3 24L6 6L14 14L20 3L26 14L34 6L37 24Z" fill="#E8B33A" stroke="#9A7420" stroke-width="2" stroke-linejoin="round"></path></svg>' : '') +
-        '<span class="avatar" style="background:' + p.color + ';box-shadow:0 0 0 4px var(--bg),0 0 0 6px ' + p.color + '">' + esc(initials(p.name, p.id === S.me)) + '</span>' +
-        '<strong>' + esc(p.id === S.me ? 'You' : p.name) + '</strong>' +
-        '<div class="podium-block" style="height:' + heights[rank] + 'px;box-shadow:inset 0 3px 0 ' + p.color + (first ? ';background:#2A2516' : '') + '">' +
-        '<span class="pts" style="' + (first ? 'color:var(--gold)' : '') + '">' + p.score + '</span><span class="place">' + places[rank] + '</span></div></div>';
-    }).join('');
+    const ranking = ps.map((p, i) =>
+      '<div class="rank-row' + (i === 0 ? ' first' : '') + '"><span class="place">' + (i + 1) + '</span>' + avatar(p, p.id === S.me) +
+      '<span class="who">' + esc(who(p)) + '</span><span class="finds">' + p.finds.length + (p.finds.length === 1 ? ' find' : ' finds') + '</span><span class="pts">' + p.score + '</span></div>').join('');
 
-    const ledgers = ps.map((p, i) => {
+    const ledgers = ps.map((p) => {
       const rows = p.finds.length
         ? p.finds.map((f) => '<div class="ledger-row"><span><strong>' + esc(feature(f.fid).name) + '</strong><q>' + esc(quoteShort(f.quote)) + '</q></span><span class="pts">+' + f.pts + '</span></div>').join('')
-        : '<span style="color:var(--muted);font-size:15px">No finds this round.</span>';
-      return '<div class="ledger" style="box-shadow:0 0 0 1px var(--line),inset 0 4px 0 ' + p.color + '">' +
-        '<div class="ledger-head"><span><span class="dot" style="background:' + p.color + '"></span>' + esc(p.id === S.me ? 'You' : p.name) + (i > 2 ? ' · ' + (i + 1) + 'th' : '') + '</span><span class="mono" style="font-size:22px;font-weight:700">' + p.score + '</span></div>' +
-        '<div style="display:flex;flex-direction:column;gap:10px">' + rows + '</div></div>';
+        : '<div class="ledger-empty">No finds this round.</div>';
+      return '<div class="panel"><div class="panel-head"><span style="display:flex;align-items:center;gap:8px"><span class="dot" style="background:' + p.color + '"></span>' + esc(who(p)) + '</span><span class="mono">' + p.score + '</span></div>' + rows + '</div>';
     }).join('');
 
-    const counts = {};
-    R.missed.forEach((m) => { counts[m.fid] = (counts[m.fid] || 0) + 1; });
+    const counts = missedCounts(R);
     const cols = R.categories.map((cat) => {
       const c = S.cat.categories[cat];
       const fids = Object.keys(counts).filter((fid) => feature(fid).cat === cat).sort((a, b) => counts[b] - counts[a]);
       const n = fids.reduce((s, fid) => s + counts[fid], 0);
-      return '<div class="slipped-col"><span class="kicker" style="color:' + c.color + '">' + esc(c.name) + ' · ' + n + '</span><div class="chips">' +
-        (fids.length ? fids.map((fid) => '<span class="chip">' + esc(feature(fid).name) + (counts[fid] > 1 ? ' ×' + counts[fid] : '') + '</span>').join('') : '<span style="color:var(--green)">Nothing missed</span>') +
+      return '<div class="missed-col"><span class="head"><span class="sq" style="background:' + c.color + '"></span>' + esc(c.name) + ' <span class="muted" style="font-weight:400">· ' + n + ' missed</span></span><div class="chips">' +
+        (fids.length ? fids.map((fid) => '<span class="chip">' + esc(feature(fid).name) + (counts[fid] > 1 ? '<b>×' + counts[fid] + '</b>' : '') + '</span>').join('') : '<span class="muted" style="font-size:13px">Nothing missed</span>') +
         '</div></div>';
     }).join('');
 
-    return '<div class="podium">' + podium + '</div>' +
+    return '<div class="panel"><div class="panel-head">Ranking</div><div class="ranking">' + ranking + '</div></div>' +
       '<div class="ledgers">' + ledgers + '</div>' +
-      '<section class="slipped"><div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:12px"><h2 style="font-size:26px">Slipped through the shredder</h2><span class="kicker red">' + R.missed.length + ' features nobody found</span></div><div class="slipped-cols">' + cols + '</div></section>';
+      '<div class="panel"><div class="panel-head">Nobody found these <span class="sub">' + R.missed.length + ' features</span></div><div class="missed-cols">' + cols + '</div></div>';
   }
 
   function tagFound(fid, p) {
-    return '<span class="tag" style="background:' + p.color + '">' + esc(feature(fid).name) + ' · ' + esc(p.id === S.me ? 'You' : p.name) + '</span>';
+    return '<span class="tag" style="background:' + rgba(p.color, 0.14) + ';color:' + p.color + '">' + esc(feature(fid).name) + ' · ' + esc(who(p)) + '</span>';
   }
   function tagMiss(fid) {
     return '<span class="tag miss">Missed · ' + esc(feature(fid).name) + '</span>';
@@ -581,7 +565,7 @@
             const by = found['g' + seg.i + ':' + fid];
             if (by) {
               const p = resultPlayer(R, by);
-              if (!style) style = 'background:' + rgba(p.color, 0.34) + ';box-shadow:inset 0 -2px 0 ' + p.color + ';border-radius:3px';
+              if (!style) style = 'background:' + rgba(p.color, 0.14) + ';box-shadow:inset 0 -2px 0 ' + p.color + ';border-radius:3px';
               tags += tagFound(fid, p);
             } else {
               if (!style) cls = 'ph-miss';
@@ -592,40 +576,40 @@
         }).join('');
         let wrapStyle = '';
         let wrapCls = '';
-        if (sentFound) wrapStyle = 'background:' + rgba(sentFound.color, 0.16) + ';border-radius:3px';
+        if (sentFound) wrapStyle = 'background:' + rgba(sentFound.color, 0.07) + ';border-radius:3px';
         if (sentMissed && !sentFound) wrapCls = 'sent-miss';
         return pre + '<span class="' + wrapCls + '" style="' + wrapStyle + '">' + inner + '</span> ';
       }).join('');
-      return '<div><span class="label"><span style="color:#B07E12">¶' + (pi + 1) + '</span> ' + esc(para.label) + '</span>' + html + '</div>';
+      return '<div><span class="label">Paragraph ' + (pi + 1) + ' · ' + esc(para.label) + '</span>' + html + '</div>';
     }).join('');
 
     const total = R.found.length + R.missed.length;
     const stack = R.players.map((p) => '<span style="width:' + (total ? (p.finds.length / total * 100) : 0) + '%;background:' + p.color + '"></span>').join('');
-    const people = R.players.map((p) => '<div class="list-row"><span style="display:flex;align-items:center;gap:10px"><span class="dot" style="background:' + p.color + '"></span>' + esc(p.id === S.me ? 'You' : p.name) + '</span><span class="mono">' + p.finds.length + ' found</span></div>').join('');
-    const counts = {};
-    R.missed.forEach((m) => { counts[m.fid] = (counts[m.fid] || 0) + 1; });
+    const people = R.players.map((p) => '<div class="list-row"><span style="display:flex;align-items:center;gap:8px"><span class="dot" style="background:' + p.color + '"></span>' + esc(who(p)) + '</span><span class="mono" style="font-size:13px">' + p.finds.length + ' found</span></div>').join('');
+    const counts = missedCounts(R);
     const most = Object.keys(counts).sort((a, b) => counts[b] - counts[a]).slice(0, 4)
-      .map((fid) => '<div class="list-row"><span>' + esc(feature(fid).name) + '</span><span class="mono" style="color:var(--red)">×' + counts[fid] + '</span></div>').join('');
+      .map((fid) => '<div class="list-row"><span>' + esc(feature(fid).name) + '</span><span class="mono" style="font-size:13px;color:var(--red)">×' + counts[fid] + '</span></div>').join('');
 
-    return '<div class="annot-grid"><article class="essay">' + essay + '</article>' +
+    return '<div class="annot-grid"><article class="panel essay">' + essay + '</article>' +
       '<aside class="annot-side">' +
-      '<div class="panel" style="display:flex;flex-direction:column;gap:14px"><span class="kicker" style="color:var(--ink)">The table found</span>' +
-      '<div style="display:flex;align-items:baseline;gap:10px"><span class="big-num">' + R.found.length + '</span><span style="font-size:18px;color:var(--muted)">of ' + total + ' features</span></div>' +
-      '<div class="stack-bar">' + stack + '</div>' + people + '</div>' +
-      '<div class="panel" style="display:flex;flex-direction:column;gap:12px"><span class="kicker" style="color:var(--ink)">How to read the essay</span>' +
-      '<div class="key-row"><span class="sw" style="background:rgba(232,179,58,0.34);box-shadow:inset 0 -2px 0 #E8B33A"></span>Found: highlighted in the finder’s colour</div>' +
-      '<div class="key-row"><span class="sw" style="border-bottom:2px dashed var(--red-line)"></span>Missed words: dashed red underline</div>' +
-      '<div class="key-row"><span class="sw" style="font-family:var(--serif);color:var(--ink);text-decoration:underline wavy var(--red-line);text-underline-offset:5px;width:auto">Sentence</span>Missed sentence: wavy red underline</div></div>' +
-      (most ? '<div class="panel" style="display:flex;flex-direction:column;gap:6px"><span class="kicker" style="color:var(--ink)">Most missed</span>' + most + '</div>' : '') +
+      '<div class="panel"><div class="panel-head">Found together</div><div style="padding:16px 18px 6px;display:flex;flex-direction:column;gap:12px">' +
+      '<div style="display:flex;align-items:baseline;gap:8px"><span class="big-num">' + R.found.length + '</span><span class="muted">of ' + total + ' features</span></div>' +
+      '<div class="stack-bar">' + stack + '</div></div>' + people + '</div>' +
+      '<div class="panel"><div class="panel-head">Key</div>' +
+      '<div class="key-row" style="padding-top:12px"><span class="sw" style="background:rgba(161,98,7,0.14);box-shadow:inset 0 -2px 0 #A16207"></span>Found, in the finder’s colour</div>' +
+      '<div class="key-row"><span class="sw" style="border-bottom:2px dashed var(--red);border-radius:0"></span>Missed words</div>' +
+      '<div class="key-row" style="padding-bottom:14px"><span class="sw" style="font-family:var(--serif);font-size:14px;color:var(--ink);text-decoration:underline wavy var(--red);text-underline-offset:5px;width:auto;height:auto">Sentence</span>Missed sentence</div></div>' +
+      (most ? '<div class="panel"><div class="panel-head">Most missed</div>' + most + '</div>' : '') +
       '</aside></div>';
   }
 
   function ring(found, total, color) {
-    const c = 326.7;
+    const r = 42;
+    const c = 2 * Math.PI * r;
     const dash = total ? (found / total) * c : 0;
-    return '<div class="gauge-ring"><svg width="128" height="128" viewBox="0 0 128 128" aria-hidden="true"><circle cx="64" cy="64" r="52" fill="none" stroke="#20242E" stroke-width="14"></circle>' +
-      '<circle cx="64" cy="64" r="52" fill="none" stroke="' + color + '" stroke-width="14" stroke-linecap="round" stroke-dasharray="' + dash.toFixed(1) + ' ' + c + '" transform="rotate(-90 64 64)"></circle></svg>' +
-      '<span><b>' + found + '/' + total + '</b><span class="mono" style="font-size:11px;color:var(--muted)">' + (total ? Math.round(found / total * 100) : 0) + '%</span></span></div>';
+    return '<div class="gauge-ring"><svg width="104" height="104" viewBox="0 0 104 104" aria-hidden="true"><circle cx="52" cy="52" r="' + r + '" fill="none" stroke="#EBEBE7" stroke-width="10"></circle>' +
+      (found ? '<circle cx="52" cy="52" r="' + r + '" fill="none" stroke="' + color + '" stroke-width="10" stroke-linecap="round" stroke-dasharray="' + dash.toFixed(1) + ' ' + c.toFixed(1) + '" transform="rotate(-90 52 52)"></circle>' : '') + '</svg>' +
+      '<span><b>' + found + '/' + total + '</b><small>' + (total ? Math.round(found / total * 100) : 0) + '%</small></span></div>';
   }
 
   function feedbackSpots(R) {
@@ -639,7 +623,7 @@
       const note = !worst || worst.m === 0 ? 'Everything in this category was found.' :
         (feature(worst.fid).name + ' was the hardest: ' + (worst.t - worst.m) + ' of ' + worst.t + ' found.');
       return '<div class="panel gauge">' + ring(st.found, st.total, c.color) +
-        '<div style="display:flex;flex-direction:column;gap:6px"><span class="kicker" style="color:' + c.color + ';font-weight:700">' + esc(c.name) + '</span><span style="font-size:15px;line-height:1.45;color:var(--soft)">' + esc(note) + '</span></div></div>';
+        '<div><span class="cat" style="color:' + c.color + '">' + esc(c.name) + '</span><p>' + esc(note) + '</p></div></div>';
     }).join('');
 
     const spots = R.focusIds
@@ -659,20 +643,20 @@
           quote = '<span class="sent-miss">' + quote + '</span>';
         }
         const ticks = Array.from({ length: x.f.total }, (_, i) => '<span class="' + (i < x.f.found ? 'got' : '') + '"></span>').join('');
-        return '<article class="spot"><div class="spot-head"><span><span style="width:10px;height:10px;border-radius:3px;background:' + c.color + ';display:inline-block"></span>' + esc(f.name) + '</span>' +
-          '<span class="mono" style="font-size:13px;color:var(--red)">' + x.f.found + ' OF ' + x.f.total + '</span></div>' +
+        return '<article class="panel spot"><div class="spot-head"><span class="name"><span class="sq" style="background:' + c.color + '"></span>' + esc(f.name) + '</span>' +
+          '<span class="count">' + x.f.found + ' of ' + x.f.total + ' found</span></div>' +
           '<div class="ticks">' + ticks + '</div><p class="quote">' + quote + '</p>' +
-          '<span style="font-size:14px;line-height:1.45;color:var(--muted)">' + esc(f.def) + '</span></article>';
+          '<span class="def">' + esc(f.def) + '</span></article>';
       }).join('');
 
     const host = isHost();
-    const next = '<div class="next-box"><div style="display:flex;flex-direction:column;gap:4px"><strong style="font-size:19px">' +
+    const next = '<div class="panel next-box"><div style="display:flex;flex-direction:column;gap:4px"><strong>' +
       (spots ? 'The next round brings these back more often.' : 'Nothing slipped through. Try a faster speed or a new text.') + '</strong>' +
-      '<span style="font-size:15px;color:#D6C9A8">' + (host ? 'Head back to the lobby to choose the next round.' : 'Waiting for the host to set up the next round.') + '</span></div>' +
-      (host ? '<button type="button" class="btn btn-gold" data-action="lobby">Back to the lobby</button>' : '') + '</div>';
+      '<span>' + (host ? 'Go back to the lobby to set up the next round.' : 'Waiting for the host to set up the next round.') + '</span></div>' +
+      (host ? '<button type="button" class="btn btn-primary" data-action="lobby">Back to the lobby</button>' : '') + '</div>';
 
     return '<div class="gauges">' + gauges + '</div>' +
-      (spots ? '<section style="display:flex;flex-direction:column;gap:14px"><h2 style="font-size:26px">What nobody saw</h2><div class="spots">' + spots + '</div></section>' : '') +
+      (spots ? '<h2 style="font-size:18px;font-weight:600">What nobody saw</h2><div class="spots">' + spots + '</div>' : '') +
       next;
   }
 
