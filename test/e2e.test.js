@@ -138,3 +138,58 @@ test('two players can play a full round over WebSockets', async () => {
     await new Promise((r) => server.close(r));
   }
 });
+
+test('joining updates the member list in the game and the game list on the start screen', async () => {
+  const { server, wss } = createServer();
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = server.address().port;
+  try {
+    const onlooker = client(port);
+    const host = client(port);
+    await onlooker.waitFor((m) => m.type === 'welcome');
+    await host.waitFor((m) => m.type === 'welcome');
+    host.send({ type: 'create', name: 'Amira' });
+    const { code } = await host.waitFor((m) => m.type === 'joined');
+    await onlooker.waitFor((m) => m.type === 'games' && m.games.length === 1 && m.games[0].players === 1);
+
+    // three more players join one by one
+    const names = ['Amira'];
+    const members = [host];
+    for (const name of ['Jun', 'Kofi', 'Lena']) {
+      const c = client(port);
+      await c.waitFor((m) => m.type === 'welcome');
+      c.send({ type: 'join', code: code, name: name });
+      await c.waitFor((m) => m.type === 'joined');
+      members.push(c);
+      names.push(name);
+      const n = names.length;
+
+      // everyone already in the game, and the newcomer, sees the full member list
+      for (const m of members) {
+        const st = await m.waitFor((s) => s.type === 'state' && s.players.length === n);
+        assert.deepStrictEqual(st.players.map((p) => p.name), names);
+      }
+      // someone on the start screen sees the new player count
+      const listed = await onlooker.waitFor((m) => m.type === 'games' && m.games.length === 1 && m.games[0].players === n);
+      assert.strictEqual(listed.games[0].full, n === 4);
+    }
+
+    // a fifth player is turned away and the list still shows the game as full
+    const late = client(port);
+    await late.waitFor((m) => m.type === 'welcome');
+    late.send({ type: 'join', code: code, name: 'Omar' });
+    assert.match((await late.waitFor((m) => m.type === 'error')).message, /full/);
+
+    // leaving frees a seat for everyone to see
+    members[3].send({ type: 'leave' });
+    await host.waitFor((s) => s.type === 'state' && s.players.length === 3);
+    const freed = await onlooker.waitFor((m) => m.type === 'games' && m.games.length === 1 && m.games[0].players === 3);
+    assert.strictEqual(freed.games[0].full, false);
+
+    for (const c of [onlooker, late, ...members]) c.ws.close();
+  } finally {
+    for (const c of wss.clients) c.terminate();
+    wss.close();
+    await new Promise((r) => server.close(r));
+  }
+});
