@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { Room, COOLDOWN_MS, LEAD_MS, CLEAR_MS } = require('../server/rooms');
+const { Room, COOLDOWN_MS, LEAD_MS, CLEAR_MS, STREAK_AT } = require('../server/rooms');
 const TEXTS = require('../shared/texts');
 const { FEATURES, FOCUS_OPTIONS } = require('../shared/features');
 
@@ -22,17 +22,23 @@ function segFor(room, fid) {
   return { unit, seg: room.round.text.unitSegs(unit)[0] };
 }
 
+// Lets the current paragraph run out of time: what was missed is shown, then
+// the next paragraph appears (or the round ends). Returns the last tick result.
+function timeOut(room, clock) {
+  clock.advance(room.round.duration - room.elapsed());
+  assert.strictEqual(room.tick(), 'reveal');
+  clock.advance(room.round.hold.ms);
+  return room.tick();
+}
+
 // Lets the clock run until the paragraph that holds a feature is on screen.
 function goTo(room, clock, fid) {
-  while (room.phase === 'playing' && !room.remaining(fid)) {
-    clock.advance(room.round.duration);
-    room.tick();
-  }
+  while (room.phase === 'playing' && !room.remaining(fid)) timeOut(room, clock);
   assert.strictEqual(room.phase, 'playing', fid + ' never came up');
 }
 
 function endRound(room, clock) {
-  while (room.phase === 'playing') { clock.advance(room.round.duration); room.tick(); }
+  while (room.phase === 'playing') timeOut(room, clock);
 }
 
 test('only the host can change settings or start', () => {
@@ -58,8 +64,7 @@ test('the tray offers exactly the features left in the paragraph on screen', () 
         if (focus !== 'mix') assert.strictEqual(FEATURES[tile.fid].cat, focus);
         for (const unit of room.open(tile.fid)) assert.strictEqual(room.round.text.unitPara(unit), room.currentPara());
       }
-      clock.advance(room.round.duration);
-      room.tick();
+      timeOut(room, clock);
     }
   }
 });
@@ -82,7 +87,7 @@ test('every feature in every paragraph can be found, by one player, in every tex
           assert.ok(res.ok, raw.id + ' ' + focus + ' ' + fid + ': ' + res.reason);
           tray = room.tray();
         }
-        assert.ok(room.round.clearedAt, 'paragraph is cleared');
+        assert.strictEqual(room.round.hold.kind, 'cleared');
         assert.strictEqual(room.tick(), null, 'a short beat before the next paragraph');
         clock.advance(CLEAR_MS);
         assert.ok(room.tick());
@@ -168,7 +173,7 @@ test('a source sentence and a citation inside it can both be found', () => {
   const t = room.round.text;
   const gi = t.segs.findIndex((s) => s.pf.indexOf('source') >= 0 && t.sents[s.si].sf.indexOf('source') >= 0);
   assert.ok(gi >= 0);
-  while (room.currentPara() !== t.segs[gi].pi) { clock.advance(room.round.duration); room.tick(); }
+  while (room.currentPara() !== t.segs[gi].pi) timeOut(room, clock);
   room.claim('a', 'source');
   assert.strictEqual(room.find('a', gi).unit, 'g' + gi);
   assert.strictEqual(room.find('a', gi).unit, 's' + t.segs[gi].si, 'a second click on the citation finds the sentence');
@@ -194,6 +199,8 @@ test('nothing can be found during the opening countdown or in a paragraph that h
   const seg = segFor(room, 'thesis').seg;
   assert.strictEqual(room.find('a', seg).reason, 'not-playing');
   t += LEAD_MS + room.round.duration;
+  assert.strictEqual(room.tick(), 'reveal');
+  t += room.round.hold.ms;
   assert.strictEqual(room.tick(), 'next');
   assert.strictEqual(room.players.get('a').claim, null, 'the new paragraph has no thesis');
   room.claim('a', 'hedge');
@@ -215,18 +222,16 @@ test('each paragraph is replaced when its time is up; pauses do not count; resul
   clock.advance(room.round.duration - 10);
   assert.strictEqual(room.tick(), null, 'the countdown does not eat into the paragraph');
   clock.advance(20);
+  assert.strictEqual(room.tick(), 'reveal');
+  clock.advance(room.round.hold.ms);
   assert.strictEqual(room.tick(), 'next');
   assert.strictEqual(room.state().round.step, 2);
   assert.strictEqual(room.state().round.marks.length, 0, 'marks belong to the paragraph on screen');
 
   room.claim('b', 'signpost');
   room.find('b', segFor(room, 'signpost').seg);
-  for (let i = 2; i < steps; i++) {
-    clock.advance(room.round.duration);
-    assert.strictEqual(room.tick(), 'next');
-  }
-  clock.advance(room.round.duration);
-  assert.strictEqual(room.tick(), 'over');
+  for (let i = 2; i < steps; i++) assert.strictEqual(timeOut(room, clock), 'next');
+  assert.strictEqual(timeOut(room, clock), 'over');
   assert.strictEqual(room.phase, 'over');
 
   const res = room.results;
@@ -236,6 +241,80 @@ test('each paragraph is replaced when its time is up; pauses do not count; resul
   assert.strictEqual(res.players[0].finds.length, 1);
   const catTotal = Object.values(res.byCategory).reduce((n, c) => n + c.total, 0);
   assert.strictEqual(catTotal, totalUnits);
+});
+
+test('when time runs out, what was missed is shown before the next paragraph', () => {
+  const { room, clock } = setup();
+  goTo(room, clock, 'hedge');
+  room.claim('a', 'hedge');
+  const got = segFor(room, 'hedge');
+  room.find('a', got.seg);
+  const total = room.paraProgress().total;
+  clock.advance(room.round.duration);
+  assert.strictEqual(room.tick(), 'reveal');
+  const hold = room.state().round.hold;
+  assert.strictEqual(hold.kind, 'reveal');
+  assert.strictEqual(hold.missed.length, total - 1);
+  assert.ok(!hold.missed.some((m) => m.fid === 'hedge' && m.segs[0] === got.seg), 'found features are not listed');
+  assert.ok(hold.missed.some((m) => m.sentence) && hold.missed.some((m) => !m.sentence));
+  assert.strictEqual(room.players.get('a').claim, null);
+  assert.strictEqual(room.claim('a', 'signpost').reason, 'not-playing');
+  assert.strictEqual(room.find('a', segFor(room, 'signpost').seg).reason, 'not-playing');
+  assert.strictEqual(room.tick(), null, 'the reveal stays for a few seconds');
+  room.togglePause('a');
+  clock.advance(60000);
+  room.togglePause('a');
+  assert.strictEqual(room.tick(), null, 'a pause does not use up the reveal');
+  clock.advance(hold.ms);
+  assert.strictEqual(room.tick(), 'next');
+  assert.strictEqual(room.state().round.hold, null);
+});
+
+test('clearing a paragraph early gives every player the same bonus, bigger with more time left', () => {
+  const bonusAfter = (wait) => {
+    const { room, clock } = setup(); // phones, mix: the introduction holds two features
+    clock.advance(Math.round(room.round.duration * wait));
+    let last;
+    for (const tile of room.tray()) {
+      room.claim('a', tile.fid);
+      last = room.find('a', segFor(room, tile.fid).seg);
+    }
+    assert.ok(last.cleared);
+    assert.strictEqual(room.state().round.hold.bonus, last.bonus);
+    const [a, b] = [room.players.get('a'), room.players.get('b')];
+    assert.strictEqual(b.score, last.bonus, 'a player who found nothing still shares the bonus');
+    assert.strictEqual(a.score - a.finds.reduce((n, f) => n + f.pts, 0), last.bonus);
+    while (room.phase === 'playing') { if (room.round.hold) { clock.advance(room.round.hold.ms); room.tick(); } else timeOut(room, clock); }
+    assert.strictEqual(room.results.players.find((p) => p.id === 'b').bonus, last.bonus);
+    return last.bonus;
+  };
+  const [early, late] = [bonusAfter(0.05), bonusAfter(0.9)];
+  assert.strictEqual(early, 50);
+  assert.strictEqual(late, 5);
+});
+
+test('three correct finds in a row are worth more until a wrong click', () => {
+  const { room, clock } = setup();
+  goTo(room, clock, 'hedge'); // body 1 holds plenty to find
+  const p = room.players.get('a');
+  const hit = (fid) => { room.claim('a', fid); return room.find('a', segFor(room, fid).seg); };
+  const first = hit('hedge');
+  const second = hit('hedge');
+  assert.deepStrictEqual([first.pts, second.pts, second.hot], [10, 10, false]);
+  const third = hit('signpost');
+  assert.strictEqual(third.streak, STREAK_AT);
+  assert.deepStrictEqual([third.hot, third.pts], [true, 15]);
+  assert.strictEqual(hit('refback').pts, 25, '15 points × 1.5, rounded to the nearest 5');
+  assert.strictEqual(room.state().players.find((x) => x.id === 'a').streak, 4);
+
+  room.claim('a', 'topic');
+  const t = room.round.text;
+  const wrong = t.paragraphs[room.currentPara()].segIdx.find((gi) => t.sents[t.segs[gi].si].sf.indexOf('topic') < 0);
+  assert.strictEqual(room.find('a', wrong).reason, 'wrong');
+  assert.strictEqual(p.streak, 0);
+  assert.strictEqual(p.bestStreak, 4);
+  clock.advance(COOLDOWN_MS + 1);
+  assert.strictEqual(hit('topic').pts, FEATURES.topic.pts, 'back to normal points');
 });
 
 test('focus limits the results to the chosen category', () => {

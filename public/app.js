@@ -78,10 +78,10 @@
     if (!audio) { try { audio = new AC(); } catch (e) { return; } }
     if (audio.state === 'suspended') audio.resume();
   }
-  function note(freq, at, len, peak) {
+  function note(freq, at, len, peak, type) {
     const osc = audio.createOscillator();
     const gain = audio.createGain();
-    osc.type = 'triangle';
+    osc.type = type || 'triangle';
     osc.frequency.value = freq;
     gain.gain.setValueAtTime(0.0001, at);
     gain.gain.exponentialRampToValueAtTime(peak, at + 0.015);
@@ -98,6 +98,18 @@
     note(783.99, t, 0.22, 0.16);          // G5
     note(1174.66, t + 0.09, 0.34, 0.16);  // D6
     if (cleared) note(1567.98, t + 0.2, 0.5, 0.14); // G6
+  }
+  // Two falling, duller notes for a wrong click.
+  function playWrong() {
+    if (!audio || !soundOn()) return;
+    const t = audio.currentTime + 0.01;
+    note(207.65, t, 0.16, 0.07, 'square');        // G#3
+    note(155.56, t + 0.12, 0.26, 0.07, 'square'); // D#3
+  }
+  // One tick a second for the last ten seconds, higher for the last three.
+  function playTick(secsLeft) {
+    if (!audio || !soundOn()) return;
+    note(secsLeft <= 3 ? 1318.51 : 987.77, audio.currentTime + 0.01, 0.06, 0.05, 'sine');
   }
   document.addEventListener('pointerdown', unlockAudio);
   document.addEventListener('keydown', unlockAudio);
@@ -307,7 +319,8 @@
       '<li><b>1</b><span><strong>Read.</strong> The essay appears one paragraph at a time, each with a time limit.</span></li>' +
       '<li><b>2</b><span><strong>Choose.</strong> The tray shows every feature still hidden in the paragraph. Click one to hunt it. Hover over it first for a definition.</span></li>' +
       '<li><b>3</b><span><strong>Find.</strong> Click the words, or the sentence, where it appears. The first player to click each one scores. A wrong click pauses you briefly, so read before you click.</span></li>' +
-      '<li><b>4</b><span><strong>Clear.</strong> Find everything and the next paragraph arrives early. When the time runs out, it arrives anyway.</span></li>' +
+      '<li><b>4</b><span><strong>Clear.</strong> Find everything before the time runs out and every player gets a bonus, bigger the more time is left. If the time runs out, you see what was missed.</span></li>' +
+      '<li><b>5</b><span><strong>Streak.</strong> ' + S.cat.streakAt + ' correct finds in a row and each find is worth ×' + S.cat.streakMult + ', until a wrong click.</span></li>' +
       '</ol></div>' +
       '</aside></div></main>';
 
@@ -339,6 +352,7 @@
       '<span class="status-side"><span id="statusSide" class="muted"></span><span class="timer mono" id="timer" aria-label="Time left for this paragraph"></span></span></div>' +
       '<div class="timebar"><span id="timebar"></span></div>' +
       '<div class="well" id="well"><div class="column" id="column"></div>' +
+      '<div class="hint" id="hint" hidden></div>' +
       '<div class="overlay" id="overlay" hidden></div></div>' +
       '</section>' +
       '<aside class="panel board" aria-label="Players"><div class="panel-head">Players <span class="sub" id="playerCount"></span></div><div class="board-list" id="board"></div></aside>' +
@@ -356,6 +370,7 @@
       timer: document.getElementById('timer'),
       timebar: document.getElementById('timebar'),
       overlay: document.getElementById('overlay'),
+      hint: document.getElementById('hint'),
       board: document.getElementById('board'),
       playerCount: document.getElementById('playerCount'),
       tiles: document.getElementById('tiles'),
@@ -366,6 +381,9 @@
       pauseBtn: document.getElementById('pauseBtn'),
       segEls: {},
       para: -1,
+      revealPara: -1,
+      tickSec: -1,
+      hintFid: null,
       trayKeys: null,
       stepKey: '',
       sideText: null,
@@ -389,8 +407,27 @@
     g.segEls = {};
     g.column.querySelectorAll('.seg').forEach((el) => { g.segEls[el.dataset.seg] = el; });
     g.marked = new Set();
+    g.revealPara = -1;
+    g.tickSec = -1;
     clearTimeout(g.gainTimer);
     g.gain = '';
+  }
+
+  // When the time runs out, what nobody found is marked and named in place.
+  function showMissed(missed) {
+    const g = S.game;
+    missed.forEach((m) => {
+      const tag = '<span class="tag miss">' + esc(feature(m.fid).name) + '</span>';
+      const first = g.segEls[m.segs[0]];
+      if (!first) return;
+      if (m.sentence) {
+        m.segs.forEach((i) => { if (g.segEls[i]) g.segEls[i].classList.add('sent-miss'); });
+        first.insertAdjacentHTML('beforebegin', tag);
+      } else {
+        first.classList.add('ph-miss');
+        first.insertAdjacentHTML('afterend', tag);
+      }
+    });
   }
 
   function updateGame() {
@@ -400,6 +437,10 @@
     const meP = player(S.me);
 
     if (r.para !== g.para) showParagraph(r.para);
+    const hold = r.hold ? r.hold.kind : '';
+    if (hold === 'reveal' && g.revealPara !== r.para) { g.revealPara = r.para; showMissed(r.hold.missed); }
+    g.doc.classList.toggle('revealing', hold === 'reveal');
+    g.tiles.classList.toggle('closed', !!hold);
 
     const stepKey = r.step + '/' + r.steps;
     if (stepKey !== g.stepKey) {
@@ -410,15 +451,15 @@
 
     // tray: one tile for each feature still to be found in this paragraph
     const mine = meP ? meP.claim : null;
-    const keys = r.tray.map((t) => t.fid + ':' + t.left).join(',') + '|' + mine;
+    const keys = r.tray.map((t) => t.fid + ':' + t.left).join(',') + '|' + mine + '|' + hold;
     if (keys !== g.trayKeys) {
       g.trayKeys = keys;
       g.tiles.innerHTML = r.tray.length ? r.tray.map((tile) => {
         const f = feature(tile.fid);
         const c = category(tile.fid);
         const on = tile.fid === mine;
-        const foot = on ? 'Hunting now' : (tile.review ? 'Missed last round' : 'Click to hunt');
-        return '<div class="tile-wrap" style="--cat:' + c.color + ';--tint:' + c.tint + '"><button type="button" class="tile" data-action="claim" data-fid="' + tile.fid + '" aria-pressed="' + on + '">' +
+        const foot = hold ? 'Missed' : (on ? 'Hunting now' : (tile.review ? 'Missed last round' : 'Click to hunt'));
+        return '<div class="tile-wrap" style="--cat:' + c.color + ';--tint:' + c.tint + '"><button type="button" class="tile" data-action="claim" data-fid="' + tile.fid + '" aria-pressed="' + on + '"' + (hold ? ' disabled' : '') + '>' +
           '<span class="tile-top"><span>' + esc(c.name) + '</span><span class="pts">+' + f.pts + '</span></span>' +
           '<span class="tile-name">' + esc(f.name) + '</span>' +
           '<span class="tile-foot"><span>' + foot + '</span><span class="left">' + tile.left + ' to find</span></span></button>' +
@@ -437,8 +478,11 @@
       let status = p.claim ? 'Hunting: ' + feature(p.claim).name : (isMe ? 'Choosing a feature' : 'Reading');
       let col = p.claim && isMe ? p.color : 'var(--muted)';
       if (frozen) { status = 'Paused for a moment'; col = 'var(--red)'; }
+      const hot = p.streak >= S.cat.streakAt;
+      const pips = Array.from({ length: S.cat.streakAt }, (_, i) => '<i class="' + (i < p.streak ? 'on' : '') + '"></i>').join('');
+      const streak = '<span class="streak' + (hot ? ' hot' : '') + '" title="' + (hot ? 'On a streak: finds are worth ×' + S.cat.streakMult : p.streak + ' correct in a row') + '">' + (hot ? '×' + S.cat.streakMult : pips) + '</span>';
       return '<div class="board-row' + (isMe ? ' me' : '') + '"><div class="board-top">' + avatar(p, isMe) +
-        '<span class="board-name"><strong>' + esc(isMe ? 'You' : p.name) + '</strong><span style="color:' + col + '">' + esc(status) + '</span></span>' +
+        '<span class="board-name"><strong>' + esc(isMe ? 'You' : p.name) + '</strong><span style="color:' + col + '">' + esc(status) + '</span></span>' + streak +
         '<span class="board-score">' + p.score + '</span></div>' +
         '<div class="bar"><span style="width:' + Math.max(2, Math.round(p.score / top * 100)) + '%;background:' + p.color + '"></span></div></div>';
     }).join('');
@@ -469,12 +513,14 @@
       flash(msg.seg, 'ok');
       playCorrect(msg.cleared);
       if (g) {
-        g.gain = '<span class="gain">Found · +' + msg.pts + '</span>';
+        g.gain = '<span class="gain">Found · +' + msg.pts + (msg.hot ? ' · streak ×' + S.cat.streakMult : '') + '</span>';
+        if (msg.streak === S.cat.streakAt) toast(S.cat.streakAt + ' in a row. Each find is now worth ×' + S.cat.streakMult + ', until a wrong click.');
         clearTimeout(g.gainTimer);
         g.gainTimer = setTimeout(() => { g.gain = ''; }, 1500);
       }
     } else if (msg.reason === 'wrong') {
       flash(msg.seg, 'bad');
+      playWrong();
     } else if (msg.reason === 'taken') {
       flash(msg.seg, 'bad');
       toast('Someone already found that one. Look for another.');
@@ -498,15 +544,25 @@
       const elapsed = (r.pausedAt || now) - r.startedAt - r.pausedTotal;
       const left = Math.max(0, Math.min(r.duration, r.duration - elapsed));
 
+      const hold = r.hold;
+      const cleared = !!hold && hold.kind === 'cleared';
+      const reveal = !!hold && hold.kind === 'reveal';
+      const holdLeft = hold ? Math.max(0, hold.ms - ((r.pausedAt || now) - hold.at)) : 0;
+      const last = r.step >= r.steps;
+
       // the paragraph's clock
       const secs = Math.ceil(left / 1000);
-      const timerText = r.cleared ? 'Done' : Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0');
+      const timerText = cleared ? 'Done' : (reveal ? '0:00' : Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0'));
       if (timerText !== g.timerText) { g.timerText = timerText; g.timer.textContent = timerText; }
-      const low = !r.cleared && elapsed >= 0 && left <= 10000;
+      const low = reveal || (!cleared && elapsed >= 0 && left <= 10000);
       g.timer.classList.toggle('low', low);
       g.timebar.classList.toggle('low', low);
-      g.timebar.classList.toggle('done', r.cleared);
-      g.timebar.style.width = (r.cleared ? 100 : left / r.duration * 100).toFixed(2) + '%';
+      g.timebar.classList.toggle('done', cleared);
+      g.timebar.style.width = (cleared ? 100 : (reveal ? holdLeft / hold.ms * 100 : left / r.duration * 100)).toFixed(2) + '%';
+      if (!hold && !r.pausedAt && elapsed >= 0 && left > 0 && left <= 10000 && secs !== g.tickSec) {
+        g.tickSec = secs;
+        playTick(secs);
+      }
 
       const side = g.gain || (r.found + ' of ' + r.total + ' found');
       if (side !== g.sideText) { g.sideText = side; g.statusSide.innerHTML = side; }
@@ -515,8 +571,10 @@
       const frozenFor = meP ? meP.cooldownUntil - now : 0;
       let html = '<span class="dot" style="background:var(--faint)"></span>Choose a feature below to hunt for';
       let frozen = false;
-      if (r.cleared) {
-        html = '<span class="dot" style="background:var(--green)"></span><strong>Paragraph cleared.</strong> ' + (r.step < r.steps ? 'The next one is coming.' : 'That was the last one.');
+      if (cleared) {
+        html = '<span class="dot" style="background:var(--green)"></span><strong>Paragraph cleared.</strong> +' + hold.bonus + ' bonus for everyone. ' + (last ? 'That was the last one.' : 'The next one is coming.');
+      } else if (reveal) {
+        html = '<strong>Time’s up.</strong> Here is what was missed. ' + (last ? 'Results' : 'Next paragraph') + ' in ' + Math.ceil(holdLeft / 1000) + 's';
       } else if (meP && meP.claim) {
         if (frozenFor > 0) {
           html = 'Not there. Try again in ' + Math.ceil(frozenFor / 1000) + 's';
@@ -526,9 +584,20 @@
         }
       }
       if (html !== g.statusHtml) { g.statusHtml = html; g.statusMain.innerHTML = html; }
-      g.status.classList.toggle('frozen', frozen);
-      g.status.classList.toggle('cleared', r.cleared);
+      g.status.classList.toggle('frozen', frozen || reveal);
+      g.status.classList.toggle('cleared', cleared);
       g.doc.classList.toggle('frozen', frozen);
+
+      // While a wrong click keeps you waiting, a reminder of what you are looking for.
+      const hintFid = frozen ? meP.claim : null;
+      if (hintFid !== g.hintFid) {
+        g.hintFid = hintFid;
+        g.hint.hidden = !hintFid;
+        if (hintFid) {
+          const f = feature(hintFid);
+          g.hint.innerHTML = '<span class="k">Hint · ' + esc(f.name) + '</span><span class="d">' + esc(f.def) + '</span><span class="e">e.g. ' + esc(f.ex) + '</span>';
+        }
+      }
 
       let overlay = '';
       if (elapsed < 0) overlay = '<span class="big">' + Math.ceil(-elapsed / 1000) + '</span><span class="msg">Get ready. The first paragraph is about to appear.</span>';
@@ -589,9 +658,10 @@
 
     const ledgers = ps.map((p) => {
       const rows = p.finds.length
-        ? p.finds.map((f) => '<div class="ledger-row"><span><strong>' + esc(feature(f.fid).name) + '</strong><q>' + esc(quoteShort(f.quote)) + '</q></span><span class="pts">+' + f.pts + '</span></div>').join('')
+        ? p.finds.map((f) => '<div class="ledger-row"><span><strong>' + esc(feature(f.fid).name) + '</strong><q>' + esc(quoteShort(f.quote)) + '</q></span><span class="pts">' + (f.streak ? '<span class="x">×' + S.cat.streakMult + '</span>' : '') + '+' + f.pts + '</span></div>').join('')
         : '<div class="ledger-empty">No finds this round.</div>';
-      return '<div class="panel"><div class="panel-head"><span style="display:flex;align-items:center;gap:8px"><span class="dot" style="background:' + p.color + '"></span>' + esc(who(p)) + '</span><span class="mono">' + p.score + '</span></div>' + rows + '</div>';
+      const bonus = p.bonus ? '<div class="ledger-row"><span><strong>Paragraphs cleared early</strong><q>Bonus shared by every player</q></span><span class="pts">+' + p.bonus + '</span></div>' : '';
+      return '<div class="panel"><div class="panel-head"><span style="display:flex;align-items:center;gap:8px"><span class="dot" style="background:' + p.color + '"></span>' + esc(who(p)) + '</span><span class="mono">' + p.score + '</span></div>' + rows + bonus + '</div>';
     }).join('');
 
     const counts = missedCounts(R);

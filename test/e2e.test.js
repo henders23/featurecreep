@@ -104,18 +104,23 @@ test('two players can play a full round over WebSockets', async () => {
     const marked = await b.waitFor((m) => m.type === 'state' && m.round && m.round.marks.length === 1);
     assert.deepStrictEqual(marked.round.marks[0].segs, room.round.text.unitSegs(unit));
     assert.strictEqual(marked.round.found, 1);
-    assert.strictEqual(marked.players.find((p) => p.id === welcomeA.you).score, welcomeA.features[tile.fid].pts);
+    // the introduction holds one argument feature, so that find clears it and
+    // both players share the bonus
+    assert.ok(hit.cleared && hit.bonus > 0);
+    assert.strictEqual(marked.round.hold.kind, 'cleared');
+    assert.strictEqual(marked.players.find((p) => p.id === welcomeA.you).score, welcomeA.features[tile.fid].pts + hit.bonus);
+    assert.strictEqual(marked.players.find((p) => p.id !== welcomeA.you).score, hit.bonus);
 
-    // a feature the paragraph does not hold cannot be chosen
-    b.send({ type: 'claim', fid: 'hedge' });
-    assert.strictEqual((await b.waitFor((m) => m.type === 'claimResult')).reason, 'gone');
-
-    // when the time runs out, the next paragraph replaces this one
+    // a moment later the next paragraph replaces this one
     b.clear();
-    room.round.startedAt -= room.round.duration;
+    room.round.hold.at -= room.round.hold.ms;
     const next = await b.waitFor((m) => m.type === 'state' && m.round && m.round.step === 2, 2000);
     assert.notStrictEqual(next.round.para, st.round.para);
     assert.strictEqual(next.round.marks.length, 0);
+
+    // a feature the paragraph does not hold cannot be chosen
+    b.send({ type: 'claim', fid: 'hedge' }); // a language feature in an argument round
+    assert.strictEqual((await b.waitFor((m) => m.type === 'claimResult')).reason, 'gone');
 
     // Jun chooses something and clicks the wrong place: frozen
     b.send({ type: 'claim', fid: next.round.tray[0].fid });
@@ -127,8 +132,20 @@ test('two players can play a full round over WebSockets', async () => {
     const miss = await b.waitFor((m) => m.type === 'findResult');
     assert.strictEqual(miss.reason, 'wrong');
 
+    // when the time runs out, what was missed is shown before the paragraph goes
+    b.clear();
+    room.round.startedAt -= room.round.duration;
+    const shown = await b.waitFor((m) => m.type === 'state' && m.round && m.round.hold, 2000);
+    assert.strictEqual(shown.round.hold.kind, 'reveal');
+    assert.ok(shown.round.hold.missed.length > 0);
+    assert.ok(shown.round.hold.missed.every((m) => welcomeA.features[m.fid].cat === 'argument'));
+
     // let the remaining paragraphs time out and check the results
-    const hurry = setInterval(() => { if (room.round && room.phase === 'playing') room.round.startedAt -= room.round.duration; }, 60);
+    const hurry = setInterval(() => {
+      if (!room.round || room.phase !== 'playing') return;
+      if (room.round.hold) room.round.hold.at -= room.round.hold.ms;
+      else room.round.startedAt -= room.round.duration;
+    }, 60);
     const overA = await a.waitFor((m) => m.type === 'over', 3000);
     const overB = await b.waitFor((m) => m.type === 'over', 3000);
     clearInterval(hurry);

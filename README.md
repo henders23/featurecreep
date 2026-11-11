@@ -16,7 +16,6 @@ After each round, everyone steps through three feedback screens:
 - The person who started the game is the host and decides when it starts.
 - The host chooses what to hunt for: **Language**, **Argument**, **Organisation** or a **Mix**, then the text (or a random one) and the speed.
 - Everyone sees the same paragraph and the same tray. The host can pause the round.
-- A correct find plays a short chime. The **Sound on / Sound off** button in the top bar mutes it.
 
 ### The rules of a round
 
@@ -24,7 +23,11 @@ After each round, everyone steps through three feedback screens:
 - **The tray.** It holds one tile for every feature still to be found in the paragraph on screen, with how many are left. It never offers a feature the paragraph does not contain, so every tile can be completed.
 - **Choosing.** Click a tile to hunt that feature. Any number of players can hunt the same feature, and choosing another tile swaps at no cost. You keep hunting the same feature until the paragraph has no more of it.
 - **Finding.** Click the words, or any part of the sentence, where the feature appears. Each instance scores once, for whoever clicks it first. Clicking one that is already found costs nothing; a wrong click freezes you for 2.5 seconds.
-- **Clearing.** When every feature in the paragraph is found, the next paragraph arrives straight away.
+- **Clearing.** When every feature in the paragraph is found, every player gets the same bonus: 5 points for each tenth of the time still left, so up to 50. The next paragraph then arrives early.
+- **Time's up.** If the clock runs out first, the paragraph stays for a few seconds with everything that was missed underlined and named, then gives way to the next one.
+- **Streaks.** Three correct finds in a row, with no wrong click between them, and every find is worth ×1.5 (rounded to the nearest 5) until a wrong click.
+- **Hints.** While a wrong click keeps you waiting, the definition of the feature you are hunting appears under the paragraph.
+- **Sound.** A chime for a correct find, a low double note for a wrong click, and a tick each second for the last ten seconds of a paragraph. The **Sound on / Sound off** button mutes all of it.
 - Paragraphs with nothing to find in the chosen focus are left out of the round (for example, the conclusion in an **Argument** round). The feedback screens still show the whole essay.
 
 ## The texts

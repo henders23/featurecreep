@@ -14,7 +14,13 @@ const COMPILED = TEXTS.map(compile);
 const MAX_PLAYERS = 4;
 const COOLDOWN_MS = 2500;
 const LEAD_MS = 3000; // countdown before the first paragraph appears
-const CLEAR_MS = 1500; // pause after a paragraph is cleared, before the next one
+const CLEAR_MS = 2500; // pause after a paragraph is cleared, before the next one
+const REVEAL_BASE_MS = 3000; // when time runs out, what was missed is shown for
+const REVEAL_EACH_MS = 600;  // this long, plus a little for each missed feature,
+const REVEAL_MAX_MS = 8000;  // up to this limit
+const STREAK_AT = 3;         // correct finds in a row, with no wrong click, to earn
+const STREAK_MULT = 1.5;     // this multiplier on every find until a wrong click
+const BONUS_STEP = 5;        // clear bonus: 5 points for every tenth of the time left
 // Time allowed for a paragraph: a base, plus reading time, plus time for each
 // feature there is to find in it.
 const SPEEDS = {
@@ -55,7 +61,7 @@ class Room {
     if (this.players.size >= MAX_PLAYERS) return { error: 'That game is full. Four players at most.' };
     const used = new Set([...this.players.values()].map((p) => p.color));
     const color = COLORS.find((c) => !used.has(c)) || COLORS[0];
-    const player = { id: id, name: cleanName(name), color: color, send: send, score: 0, claim: null, cooldownUntil: 0, finds: [] };
+    const player = { id: id, name: cleanName(name), color: color, send: send, score: 0, claim: null, cooldownUntil: 0, finds: [], streak: 0, bestStreak: 0, bonus: 0 };
     this.players.set(id, player);
     this.order.push(id);
     if (!this.hostId) this.hostId = id;
@@ -113,7 +119,7 @@ class Room {
       duration: 0,
       pausedAt: null,
       pausedTotal: 0,
-      clearedAt: null,
+      hold: null, // { kind: 'cleared' | 'reveal', at, ms, ... } between paragraphs
       found: {}
     };
     this.round.duration = this.paraDuration(paras[0]);
@@ -121,6 +127,7 @@ class Room {
     this.results = null;
     for (const p of this.players.values()) {
       p.score = 0; p.claim = null; p.cooldownUntil = 0; p.finds = [];
+      p.streak = 0; p.bestStreak = 0; p.bonus = 0;
     }
     this.phase = 'playing';
     return true;
@@ -144,7 +151,7 @@ class Room {
     if (r.pausedAt) {
       const gap = now - r.pausedAt;
       r.pausedTotal += gap;
-      if (r.clearedAt) r.clearedAt += gap;
+      if (r.hold) r.hold.at += gap;
       r.pausedAt = null;
     } else r.pausedAt = now;
     return true;
@@ -164,16 +171,33 @@ class Room {
     return t - r.startedAt - r.pausedTotal;
   }
 
-  // Moves the round on when the paragraph's time is up, or shortly after
-  // everything in it has been found. Returns 'next' when a new paragraph
-  // appears, 'over' when the round has just ended, otherwise null.
+  // Moves the round on. When a paragraph's time is up, what was missed is
+  // shown for a few seconds ('reveal'); then, or shortly after a paragraph has
+  // been cleared, the next paragraph appears ('next') or the round ends ('over').
   tick() {
     if (this.phase !== 'playing') return null;
     const r = this.round;
     if (r.pausedAt) return null;
-    const cleared = r.clearedAt && this.now() - r.clearedAt >= CLEAR_MS;
-    if (cleared || this.elapsed() >= r.duration) return this.advance();
-    return null;
+    const now = this.now();
+    if (r.hold) return now - r.hold.at >= r.hold.ms ? this.advance() : null;
+    if (this.elapsed() < r.duration) return null;
+    const missed = this.missedHere();
+    r.hold = { kind: 'reveal', at: now, ms: Math.min(REVEAL_MAX_MS, REVEAL_BASE_MS + REVEAL_EACH_MS * missed.length), missed: missed };
+    for (const p of this.players.values()) p.claim = null;
+    return 'reveal';
+  }
+
+  // Everything in the paragraph on screen that nobody has found.
+  missedHere() {
+    const r = this.round;
+    const slot = r.byPara[this.currentPara()];
+    const out = [];
+    r.focusIds.forEach((fid) => {
+      (slot[fid] || []).forEach((unit) => {
+        if (!r.found[unit + ':' + fid]) out.push({ fid: fid, unit: unit, segs: r.text.unitSegs(unit), sentence: unit[0] === 's' });
+      });
+    });
+    return out;
   }
 
   advance() {
@@ -185,7 +209,7 @@ class Room {
     }
     r.startedAt = this.now();
     r.pausedTotal = 0;
-    r.clearedAt = null;
+    r.hold = null;
     r.duration = this.paraDuration(r.paras[r.idx]);
     // A feature someone was hunting carries over only if the new paragraph has it.
     for (const p of this.players.values()) if (p.claim && !this.remaining(p.claim)) p.claim = null;
@@ -236,7 +260,7 @@ class Room {
   // feature; each instance of it scores for whoever clicks it first.
   claim(by, fid) {
     const p = this.players.get(by);
-    if (!p || this.phase !== 'playing' || this.round.pausedAt) return { ok: false, reason: 'not-playing' };
+    if (!p || this.phase !== 'playing' || this.round.pausedAt || this.round.hold) return { ok: false, reason: 'not-playing' };
     if (!this.remaining(fid)) return { ok: false, reason: 'gone' };
     p.claim = fid;
     return { ok: true, fid: fid };
@@ -247,7 +271,7 @@ class Room {
   find(by, gi) {
     const p = this.players.get(by);
     const r = this.round;
-    if (!p || this.phase !== 'playing' || r.pausedAt || this.elapsed() < 0) return { ok: false, reason: 'not-playing' };
+    if (!p || this.phase !== 'playing' || r.pausedAt || r.hold || this.elapsed() < 0) return { ok: false, reason: 'not-playing' };
     const now = this.now();
     if (now < p.cooldownUntil) return { ok: false, reason: 'frozen', cooldownUntil: p.cooldownUntil };
     if (!p.claim) return { ok: false, reason: 'no-claim' };
@@ -262,21 +286,36 @@ class Room {
     if (r.text.sents[seg.si].sf.indexOf(fid) >= 0) units.push('s' + seg.si);
     if (!units.length) {
       p.cooldownUntil = now + COOLDOWN_MS;
+      p.streak = 0;
       return { ok: false, reason: 'wrong', fid: fid, seg: gi, cooldownUntil: p.cooldownUntil };
     }
     const unit = units.find((u) => !r.found[u + ':' + fid]);
     if (!unit) return { ok: false, reason: 'taken', fid: fid, seg: gi };
     r.found[unit + ':' + fid] = by;
-    const pts = FEATURES[fid].pts;
+    // Careful reading pays: from the third correct find in a row, every find
+    // is worth more, until a wrong click breaks the streak.
+    p.streak += 1;
+    p.bestStreak = Math.max(p.bestStreak, p.streak);
+    const hot = p.streak >= STREAK_AT;
+    const base = FEATURES[fid].pts;
+    const pts = hot ? Math.round(base * STREAK_MULT / 5) * 5 : base;
     p.score += pts;
-    p.finds.push({ fid: fid, unit: unit, pts: pts });
+    p.finds.push({ fid: fid, unit: unit, pts: pts, streak: hot });
     const left = this.remaining(fid);
     // Keep hunting the same feature while the paragraph has more of it.
     if (!left) for (const q of this.players.values()) if (q.claim === fid) q.claim = null;
     const prog = this.paraProgress();
     const cleared = prog.found === prog.total;
-    if (cleared) r.clearedAt = now;
-    return { ok: true, fid: fid, seg: gi, pts: pts, unit: unit, left: left, cleared: cleared };
+    let bonus = 0;
+    if (cleared) {
+      // Clearing a paragraph early earns everyone the same bonus, bigger the
+      // more time is left, so the whole group gains by finishing it together.
+      const share = Math.max(0, 1 - this.elapsed() / r.duration);
+      bonus = BONUS_STEP * Math.max(1, Math.ceil(share * 10));
+      for (const q of this.players.values()) { q.score += bonus; q.bonus += bonus; }
+      r.hold = { kind: 'cleared', at: now, ms: CLEAR_MS, bonus: bonus };
+    }
+    return { ok: true, fid: fid, seg: gi, pts: pts, base: base, streak: p.streak, hot: hot, unit: unit, left: left, cleared: cleared, bonus: bonus };
   }
 
   // ---------- what clients see ----------
@@ -300,7 +339,7 @@ class Room {
       settings: this.settings,
       players: this.order.map((id) => {
         const p = this.players.get(id);
-        return { id: p.id, name: p.name, color: p.color, score: p.score, claim: p.claim, cooldownUntil: p.cooldownUntil };
+        return { id: p.id, name: p.name, color: p.color, score: p.score, claim: p.claim, cooldownUntil: p.cooldownUntil, streak: p.streak };
       })
     };
   }
@@ -319,7 +358,8 @@ class Room {
         duration: r.duration,
         pausedAt: r.pausedAt,
         pausedTotal: r.pausedTotal,
-        cleared: !!r.clearedAt,
+        // between paragraphs: 'cleared' (with the bonus) or 'reveal' (with what was missed)
+        hold: r.hold ? { kind: r.hold.kind, at: r.hold.at, ms: r.hold.ms, bonus: r.hold.bonus || 0, missed: (r.hold.missed || []).map((m) => ({ fid: m.fid, segs: m.segs, sentence: m.sentence })) } : null,
         total: prog.total,
         found: prog.found,
         focus: r.focus,
@@ -381,8 +421,8 @@ class Room {
     });
 
     const players = this.order.map((id) => this.players.get(id)).filter(Boolean).map((p) => ({
-      id: p.id, name: p.name, color: p.color, score: p.score,
-      finds: p.finds.map((f) => ({ fid: f.fid, unit: f.unit, pts: f.pts, quote: t.unitQuote(f.unit) }))
+      id: p.id, name: p.name, color: p.color, score: p.score, bonus: p.bonus, bestStreak: p.bestStreak,
+      finds: p.finds.map((f) => ({ fid: f.fid, unit: f.unit, pts: f.pts, streak: f.streak, quote: t.unitQuote(f.unit) }))
         .sort((a, b) => b.pts - a.pts)
     })).sort((a, b) => b.score - a.score);
 
@@ -452,8 +492,10 @@ function catalogue() {
     categories: CATEGORIES,
     focusOptions: FOCUS_OPTIONS,
     texts: COMPILED.map((c) => ({ id: c.id, title: c.title, discipline: c.discipline })),
-    speeds: Object.keys(SPEEDS)
+    speeds: Object.keys(SPEEDS),
+    streakAt: STREAK_AT,
+    streakMult: STREAK_MULT
   };
 }
 
-module.exports = { Room, RoomManager, catalogue, COOLDOWN_MS, LEAD_MS, CLEAR_MS, SPEEDS, MAX_PLAYERS };
+module.exports = { Room, RoomManager, catalogue, COOLDOWN_MS, LEAD_MS, CLEAR_MS, STREAK_AT, SPEEDS, MAX_PLAYERS };
