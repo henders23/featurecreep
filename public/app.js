@@ -88,13 +88,35 @@
     osc.start(at);
     osc.stop(at + len + 0.02);
   }
-  // Two rising notes for a correct find; a third when it clears the paragraph.
+  // A soft, rounded tone: a pure sine with a gentle attack and a long fade,
+  // warmed by a quieter note an octave below and passed through a low-pass
+  // filter so nothing in it is sharp.
+  function soft(freq, at, len, peak) {
+    const filter = audio.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 1800;
+    filter.connect(audio.destination);
+    [[freq, peak], [freq / 2, peak * 0.45]].forEach(([f, level]) => {
+      const osc = audio.createOscillator();
+      const gain = audio.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = f;
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(level, at + 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + len);
+      osc.connect(gain);
+      gain.connect(filter);
+      osc.start(at);
+      osc.stop(at + len + 0.05);
+    });
+  }
+  // Two gentle rising notes for a correct find; a third when it clears the paragraph.
   function playCorrect(cleared) {
     if (!audio || !soundOn()) return;
     const t = audio.currentTime + 0.01;
-    note(783.99, t, 0.22, 0.16);          // G5
-    note(1174.66, t + 0.09, 0.34, 0.16);  // D6
-    if (cleared) note(1567.98, t + 0.2, 0.5, 0.14); // G6
+    soft(523.25, t, 0.45, 0.09);         // C5
+    soft(659.25, t + 0.12, 0.6, 0.09);   // E5
+    if (cleared) soft(783.99, t + 0.26, 0.8, 0.08); // G5
   }
   // Two falling, duller notes for a wrong click.
   function playWrong() {
