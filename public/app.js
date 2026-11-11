@@ -114,7 +114,7 @@
   const brand = () => '<div class="brand">Feature <mark>Creep</mark></div>';
   const legendHtml = (cats) => cats.map((c) => {
     const k = S.cat.categories[c];
-    return '<span><span class="sq" style="background:' + k.color + '"></span>' + esc(k.name) + '</span>';
+    return '<span><span class="sq" style="background:' + k.tint + ';border:1px solid ' + k.color + '"></span>' + esc(k.name) + '</span>';
   }).join('');
 
   // ---------------------------------------------------------------- connection
@@ -475,7 +475,7 @@
         const foot = hold ? 'Missed' : (on ? 'Marking now' : (tile.review ? 'Missed last round' : esc(c.name)));
         return '<div class="tile-wrap" style="--cat:' + c.color + ';--tint:' + c.tint + '"><button type="button" class="tile" data-action="claim" data-fid="' + tile.fid + '" aria-pressed="' + on + '"' + (hold ? ' disabled' : '') + '>' +
           '<span class="tile-name">' + esc(f.name) + '</span>' +
-          '<span class="tile-foot"><span>' + foot + '</span><span class="left">' + tile.left + ' left · +' + f.pts + '</span></span></button>' +
+          '<span class="tile-foot"><span>' + foot + ' · ' + tile.left + ' left</span><span class="pts">+' + f.pts + '</span></span></button>' +
           '<div class="tip"><span class="k">' + esc(c.name) + ' · ' + f.pts + ' points each</span><strong>' + esc(f.name) + '</strong><span class="d">' + esc(f.def) + '</span><span class="e">e.g. ' + esc(f.ex) + '</span></div></div>';
       }).join('') : '<p class="tiles-empty">Everything in this paragraph has been found.</p>';
     }
