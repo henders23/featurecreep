@@ -2,21 +2,30 @@
 
 A multiplayer reading hunt for students of English for Academic Purposes.
 
-An academic essay rises up the screen towards a shredder. Players claim features of academic writing from a tray (hedging, a thesis statement, a source used as evidence, a grammar mistake…) and then click where that feature appears in the text before it is shredded. Right first time scores; a wrong click freezes the player for 2.5 seconds, so careful reading beats click-spamming.
+An academic essay appears one paragraph at a time. A tray shows the features of academic writing still hidden in that paragraph (hedging, a thesis statement, a source used as evidence, a grammar mistake…). Players choose a feature and click where it appears. They have a set time to find every feature before the paragraph is replaced by the next one. Right first time scores; a wrong click freezes the player for 2.5 seconds, so careful reading beats click-spamming.
 
 After each round, everyone steps through three feedback screens:
 
 1. **Scores** – a podium, each player's finds with the words they found, and the features nobody found, grouped by category.
 2. **In the text** – the whole essay marked up: every find highlighted in the finder's colour, every missed feature underlined in red and labelled.
-3. **Blind spots** – hit rates for each category and the most-missed features, each with a sentence from the text and a short explanation. The next round in the same game offers these features more often.
+3. **Blind spots** – hit rates for each category and the most-missed features, each with a sentence from the text and a short explanation. The next round in the same game flags these features in the tray.
 
 ## Playing
 
 - On the start screen everyone types their name, then either starts a new game or joins one from the list of open games. The list shows how many players each game has; a game holds four players and shows as full until someone leaves.
 - The person who started the game is the host and decides when it starts.
 - The host chooses what to hunt for: **Language**, **Argument**, **Organisation** or a **Mix**, then the text (or a random one) and the speed.
-- Everyone sees the same text and the same tray of five features. When a feature is claimed, a new one replaces it. Each player hunts one feature at a time; claiming another drops the one you were holding.
-- The host can pause the round.
+- Everyone sees the same paragraph and the same tray. The host can pause the round.
+- A correct find plays a short chime. The **Sound on / Sound off** button in the top bar mutes it.
+
+### The rules of a round
+
+- **One paragraph at a time.** Each paragraph has its own clock: a base time, plus reading time for its length, plus time for each feature there is to find in it. **Gentle** allows more time than **Brisk**. When the clock runs out the next paragraph replaces it; anything not found counts as missed.
+- **The tray.** It holds one tile for every feature still to be found in the paragraph on screen, with how many are left. It never offers a feature the paragraph does not contain, so every tile can be completed.
+- **Choosing.** Click a tile to hunt that feature. Any number of players can hunt the same feature, and choosing another tile swaps at no cost. You keep hunting the same feature until the paragraph has no more of it.
+- **Finding.** Click the words, or any part of the sentence, where the feature appears. Each instance scores once, for whoever clicks it first. Clicking one that is already found costs nothing; a wrong click freezes you for 2.5 seconds.
+- **Clearing.** When every feature in the paragraph is found, the next paragraph arrives straight away.
+- Paragraphs with nothing to find in the chosen focus are left out of the round (for example, the conclusion in an **Argument** round). The feedback screens still show the whole essay.
 
 ## The texts
 
@@ -48,7 +57,7 @@ Then open http://localhost:3000 in two browser windows to try it with two player
 npm test
 ```
 
-This runs unit tests for the texts and game rules, plus an end-to-end test that starts a real server and plays a round with two WebSocket clients. Setting `FC_ROUND_MS` (for example `FC_ROUND_MS=30000 npm start`) shortens rounds for manual or browser testing.
+This runs unit tests for the texts and game rules, plus an end-to-end test that starts a real server and plays a round with two WebSocket clients. Setting `FC_ROUND_MS` (for example `FC_ROUND_MS=30000 npm start`) fixes the length of a whole round, shared equally between its paragraphs, for manual or browser testing.
 
 ## Deploying to Render
 

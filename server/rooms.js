@@ -1,17 +1,26 @@
 // Game rooms. The server holds the truth: which features are where in the
-// text, who has claimed what, and who found what. Clients only ever see the
+// text, who is hunting what, and who found what. Clients only ever see the
 // words of the text until the round is over.
+//
+// A round shows the essay one paragraph at a time. Each paragraph stays for a
+// set time, or until every feature in it has been found, and is then replaced
+// by the next one.
 
 const TEXTS = require('../shared/texts');
 const { FEATURES, CATEGORIES, FOCUS_OPTIONS, featuresForFocus } = require('../shared/features');
 const { compile, publicText } = require('./textEngine');
 
 const COMPILED = TEXTS.map(compile);
-const TRAY_SIZE = 5;
 const MAX_PLAYERS = 4;
 const COOLDOWN_MS = 2500;
-const LEAD_MS = 3000; // countdown before the text starts moving
-const SPEEDS = { gentle: 7.5, brisk: 12 }; // characters of text per second
+const LEAD_MS = 3000; // countdown before the first paragraph appears
+const CLEAR_MS = 1500; // pause after a paragraph is cleared, before the next one
+// Time allowed for a paragraph: a base, plus reading time, plus time for each
+// feature there is to find in it.
+const SPEEDS = {
+  gentle: { base: 15000, perChar: 1000 / 14, perUnit: 5000 },
+  brisk: { base: 10000, perChar: 1000 / 20, perUnit: 3500 }
+};
 const COLORS = ['#A16207', '#0F766E', '#6D28D9', '#BE185D']; // one per seat, readable on white
 const CODE_WORDS = ['HEDGE', 'THESIS', 'CLAUSE', 'SOURCE', 'TOPIC', 'CITE', 'NOUN', 'VERB', 'ESSAY', 'GLOSS'];
 
@@ -36,7 +45,6 @@ class Room {
     this.settings = { focus: 'mix', textId: 'random', speed: 'gentle' };
     this.round = null;
     this.results = null;
-    this.trayKey = 0;
     this.lastTextId = null;
     this.review = []; // features missed last round, offered more often next round
   }
@@ -83,35 +91,62 @@ class Room {
     }
     this.lastTextId = text.id;
     const focusIds = featuresForFocus(this.settings.focus);
-    const now = this.now();
+    // What there is to find in each paragraph: byPara[pi][fid] = [unit, ...]
+    const byPara = text.paragraphs.map(() => ({}));
+    focusIds.forEach((fid) => {
+      text.units[fid].forEach((unit) => {
+        const slot = byPara[text.unitPara(unit)];
+        (slot[fid] = slot[fid] || []).push(unit);
+      });
+    });
+    // Paragraphs with nothing to find in the chosen focus are not shown.
+    const paras = byPara.map((slot, pi) => pi).filter((pi) => Object.keys(byPara[pi]).length > 0);
     this.round = {
       text: text,
       focus: this.settings.focus,
       focusIds: focusIds,
-      startedAt: now + LEAD_MS,
-      // FC_ROUND_MS lets automated browser tests run short rounds.
-      duration: Number(process.env.FC_ROUND_MS) || Math.round(text.chars / SPEEDS[this.settings.speed] * 1000),
+      speed: this.settings.speed,
+      byPara: byPara,
+      paras: paras,
+      idx: 0,
+      startedAt: this.now() + LEAD_MS, // when the current paragraph's clock starts
+      duration: 0,
       pausedAt: null,
       pausedTotal: 0,
-      tray: [],
+      clearedAt: null,
       found: {}
     };
+    this.round.duration = this.paraDuration(paras[0]);
     this.review = this.results ? this.results.missed.map((m) => m.fid).filter((fid) => focusIds.indexOf(fid) >= 0) : [];
     this.results = null;
     for (const p of this.players.values()) {
       p.score = 0; p.claim = null; p.cooldownUntil = 0; p.finds = [];
     }
-    for (let i = 0; i < TRAY_SIZE; i++) this.round.tray.push(this.newTile());
     this.phase = 'playing';
     return true;
+  }
+
+  paraDuration(pi) {
+    const r = this.round;
+    // FC_ROUND_MS lets automated browser tests run short rounds.
+    const fixed = Number(process.env.FC_ROUND_MS);
+    if (fixed) return Math.round(fixed / r.paras.length);
+    const sp = SPEEDS[r.speed];
+    const chars = r.text.paragraphs[pi].segIdx.reduce((n, gi) => n + r.text.segs[gi].t.length, 0);
+    const units = Object.keys(r.byPara[pi]).reduce((n, fid) => n + r.byPara[pi][fid].length, 0);
+    return Math.round(sp.base + chars * sp.perChar + units * sp.perUnit);
   }
 
   togglePause(by) {
     if (by !== this.hostId || this.phase !== 'playing') return false;
     const r = this.round;
     const now = this.now();
-    if (r.pausedAt) { r.pausedTotal += now - r.pausedAt; r.pausedAt = null; }
-    else r.pausedAt = now;
+    if (r.pausedAt) {
+      const gap = now - r.pausedAt;
+      r.pausedTotal += gap;
+      if (r.clearedAt) r.clearedAt += gap;
+      r.pausedAt = null;
+    } else r.pausedAt = now;
     return true;
   }
 
@@ -121,6 +156,7 @@ class Room {
     return true;
   }
 
+  // Time used on the current paragraph. Negative during the opening countdown.
   elapsed() {
     const r = this.round;
     if (!r) return 0;
@@ -128,14 +164,32 @@ class Room {
     return t - r.startedAt - r.pausedTotal;
   }
 
-  // Returns true when the round has just ended.
+  // Moves the round on when the paragraph's time is up, or shortly after
+  // everything in it has been found. Returns 'next' when a new paragraph
+  // appears, 'over' when the round has just ended, otherwise null.
   tick() {
-    if (this.phase !== 'playing') return false;
-    if (this.elapsed() >= this.round.duration) {
+    if (this.phase !== 'playing') return null;
+    const r = this.round;
+    if (r.pausedAt) return null;
+    const cleared = r.clearedAt && this.now() - r.clearedAt >= CLEAR_MS;
+    if (cleared || this.elapsed() >= r.duration) return this.advance();
+    return null;
+  }
+
+  advance() {
+    const r = this.round;
+    r.idx += 1;
+    if (r.idx >= r.paras.length) {
       this.finish();
-      return true;
+      return 'over';
     }
-    return false;
+    r.startedAt = this.now();
+    r.pausedTotal = 0;
+    r.clearedAt = null;
+    r.duration = this.paraDuration(r.paras[r.idx]);
+    // A feature someone was hunting carries over only if the new paragraph has it.
+    for (const p of this.players.values()) if (p.claim && !this.remaining(p.claim)) p.claim = null;
+    return 'next';
   }
 
   finish() {
@@ -146,82 +200,93 @@ class Room {
 
   // ---------- the tray ----------
 
+  currentPara() {
+    const r = this.round;
+    return r.paras[Math.min(r.idx, r.paras.length - 1)];
+  }
+
+  // Units of a feature in the current paragraph that nobody has found yet.
+  open(fid) {
+    const r = this.round;
+    return (r.byPara[this.currentPara()][fid] || []).filter((u) => !r.found[u + ':' + fid]);
+  }
+
   remaining(fid) {
+    return this.open(fid).length;
+  }
+
+  // One tile for each feature still to be found in the current paragraph.
+  // The tray never offers a feature the paragraph does not contain, and a tile
+  // stays until every instance is found, so the paragraph can always be cleared.
+  tray() {
     const r = this.round;
-    return r.text.units[fid].filter((u) => !r.found[u + ':' + fid]).length;
+    return r.focusIds.map((fid) => ({ fid: fid, left: this.remaining(fid), review: this.review.indexOf(fid) >= 0 }))
+      .filter((t) => t.left > 0);
   }
 
-  inPlay(fid) {
-    let n = this.round.tray.filter((t) => t.fid === fid).length;
-    for (const p of this.players.values()) if (p.claim === fid) n++;
-    return n;
+  paraProgress() {
+    const slot = this.round.byPara[this.currentPara()];
+    let total = 0;
+    let left = 0;
+    Object.keys(slot).forEach((fid) => { total += slot[fid].length; left += this.remaining(fid); });
+    return { total: total, found: total - left };
   }
 
-  newTile() {
-    const r = this.round;
-    const ids = r.focusIds;
-    const onTray = new Set(r.tray.map((t) => t.fid));
-    const spare = (fid) => this.remaining(fid) - this.inPlay(fid) > 0;
-    let pool = ids.filter((fid) => !onTray.has(fid) && spare(fid));
-    if (!pool.length) pool = ids.filter(spare);
-    if (!pool.length) pool = ids.filter((fid) => this.remaining(fid) > 0);
-    if (!pool.length) pool = ids;
-    const review = pool.filter((fid) => this.review.indexOf(fid) >= 0);
-    if (review.length && this.random() < 0.5) pool = review;
-    const fid = pool[Math.floor(this.random() * pool.length)];
-    this.trayKey += 1;
-    return { key: this.trayKey, fid: fid };
-  }
-
-  claim(by, key) {
+  // Choosing a feature to hunt. Any number of players can hunt the same
+  // feature; each instance of it scores for whoever clicks it first.
+  claim(by, fid) {
     const p = this.players.get(by);
     if (!p || this.phase !== 'playing' || this.round.pausedAt) return { ok: false, reason: 'not-playing' };
-    const r = this.round;
-    const idx = r.tray.findIndex((t) => t.key === key);
-    if (idx < 0) return { ok: false, reason: 'gone' };
-    const fid = r.tray[idx].fid;
-    const dropped = p.claim;
+    if (!this.remaining(fid)) return { ok: false, reason: 'gone' };
     p.claim = fid;
-    r.tray.splice(idx, 1);
-    r.tray.splice(idx, 0, this.newTile());
-    return { ok: true, fid: fid, dropped: dropped };
+    return { ok: true, fid: fid };
   }
 
   // ---------- finding ----------
 
   find(by, gi) {
     const p = this.players.get(by);
-    if (!p || this.phase !== 'playing' || this.round.pausedAt) return { ok: false, reason: 'not-playing' };
+    const r = this.round;
+    if (!p || this.phase !== 'playing' || r.pausedAt || this.elapsed() < 0) return { ok: false, reason: 'not-playing' };
     const now = this.now();
     if (now < p.cooldownUntil) return { ok: false, reason: 'frozen', cooldownUntil: p.cooldownUntil };
     if (!p.claim) return { ok: false, reason: 'no-claim' };
-    const r = this.round;
     const seg = r.text.segs[gi];
-    if (!seg) return { ok: false, reason: 'bad-segment' };
+    // A click on a paragraph that has just been replaced costs nothing.
+    if (!seg || seg.pi !== this.currentPara()) return { ok: false, reason: 'stale' };
     const fid = p.claim;
-    let unit = null;
-    if (seg.pf.indexOf(fid) >= 0) unit = 'g' + gi;
-    else if (r.text.sents[seg.si].sf.indexOf(fid) >= 0) unit = 's' + seg.si;
-    if (!unit) {
+    // The clicked words can hold the feature themselves, sit in a sentence
+    // that holds it, or both. Take whichever has not been found yet.
+    const units = [];
+    if (seg.pf.indexOf(fid) >= 0) units.push('g' + gi);
+    if (r.text.sents[seg.si].sf.indexOf(fid) >= 0) units.push('s' + seg.si);
+    if (!units.length) {
       p.cooldownUntil = now + COOLDOWN_MS;
       return { ok: false, reason: 'wrong', fid: fid, seg: gi, cooldownUntil: p.cooldownUntil };
     }
-    const key = unit + ':' + fid;
-    if (r.found[key]) return { ok: false, reason: 'taken', fid: fid, seg: gi };
-    r.found[key] = by;
+    const unit = units.find((u) => !r.found[u + ':' + fid]);
+    if (!unit) return { ok: false, reason: 'taken', fid: fid, seg: gi };
+    r.found[unit + ':' + fid] = by;
     const pts = FEATURES[fid].pts;
     p.score += pts;
     p.finds.push({ fid: fid, unit: unit, pts: pts });
-    p.claim = null;
-    return { ok: true, fid: fid, seg: gi, pts: pts, unit: unit };
+    const left = this.remaining(fid);
+    // Keep hunting the same feature while the paragraph has more of it.
+    if (!left) for (const q of this.players.values()) if (q.claim === fid) q.claim = null;
+    const prog = this.paraProgress();
+    const cleared = prog.found === prog.total;
+    if (cleared) r.clearedAt = now;
+    return { ok: true, fid: fid, seg: gi, pts: pts, unit: unit, left: left, cleared: cleared };
   }
 
   // ---------- what clients see ----------
 
+  // Finds in the paragraph on screen.
   marks() {
     const r = this.round;
     if (!r) return [];
-    return Object.keys(r.found).map((key) => {
+    const pi = this.currentPara();
+    return Object.keys(r.found).filter((key) => r.text.unitPara(key.split(':')[0]) === pi).map((key) => {
       const [unit, fid] = key.split(':');
       return { segs: r.text.unitSegs(unit), by: r.found[key], fid: fid };
     });
@@ -244,14 +309,21 @@ class Room {
     const msg = Object.assign({ type: 'state', serverNow: this.now() }, this.lobbyInfo());
     if (this.round && this.phase === 'playing') {
       const r = this.round;
+      const prog = this.paraProgress();
       msg.round = {
         textId: r.text.id,
+        para: this.currentPara(),   // index into the text's paragraphs
+        step: r.idx + 1,            // 1st, 2nd… paragraph shown this round
+        steps: r.paras.length,
         startedAt: r.startedAt,
         duration: r.duration,
         pausedAt: r.pausedAt,
         pausedTotal: r.pausedTotal,
+        cleared: !!r.clearedAt,
+        total: prog.total,
+        found: prog.found,
         focus: r.focus,
-        tray: r.tray.map((t) => ({ key: t.key, fid: t.fid })),
+        tray: this.tray(),
         marks: this.marks()
       };
     }
@@ -384,4 +456,4 @@ function catalogue() {
   };
 }
 
-module.exports = { Room, RoomManager, catalogue, COOLDOWN_MS, LEAD_MS, TRAY_SIZE, SPEEDS, MAX_PLAYERS };
+module.exports = { Room, RoomManager, catalogue, COOLDOWN_MS, LEAD_MS, CLEAR_MS, SPEEDS, MAX_PLAYERS };

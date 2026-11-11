@@ -80,44 +80,58 @@ test('two players can play a full round over WebSockets', async () => {
     assert.strictEqual(roundA.text.id, 'emi');
     assert.ok(!JSON.stringify(roundA).includes('"pf"'), 'clients never see the tags');
     const st = await a.waitFor((m) => m.type === 'state' && m.round);
-    assert.strictEqual(st.round.tray.length, 5);
+    assert.strictEqual(st.round.step, 1);
+    assert.ok(st.round.tray.length > 0);
     for (const tile of st.round.tray) assert.strictEqual(welcomeA.features[tile.fid].cat, 'argument');
 
-    // Amira claims a tile and finds it in the text
+    // the first paragraph appears after the countdown
     const room = manager.get(joinedA.code);
+    room.round.startedAt = Date.now() - 1;
+
+    // both players choose the same feature; Amira finds it first
     const tile = st.round.tray[0];
-    a.send({ type: 'claim', key: tile.key });
+    a.send({ type: 'claim', fid: tile.fid });
     const claimed = await a.waitFor((m) => m.type === 'claimResult');
     assert.ok(claimed.ok);
-    const unit = room.round.text.units[tile.fid][0];
+    b.send({ type: 'claim', fid: tile.fid });
+    assert.ok((await b.waitFor((m) => m.type === 'claimResult')).ok);
+    const unit = room.open(tile.fid)[0];
     const seg = room.round.text.unitSegs(unit)[0];
-
-    // Jun tries to grab the same tile too late
-    b.send({ type: 'claim', key: tile.key });
-    const late = await b.waitFor((m) => m.type === 'claimResult');
-    assert.strictEqual(late.reason, 'gone');
 
     a.send({ type: 'find', seg: seg });
     const hit = await a.waitFor((m) => m.type === 'findResult');
     assert.ok(hit.ok, 'correct find scores');
     const marked = await b.waitFor((m) => m.type === 'state' && m.round && m.round.marks.length === 1);
     assert.deepStrictEqual(marked.round.marks[0].segs, room.round.text.unitSegs(unit));
+    assert.strictEqual(marked.round.found, 1);
     assert.strictEqual(marked.players.find((p) => p.id === welcomeA.you).score, welcomeA.features[tile.fid].pts);
 
-    // Jun claims something and clicks the wrong place: frozen
-    const tray2 = marked.round.tray;
-    b.send({ type: 'claim', key: tray2[1].key });
+    // a feature the paragraph does not hold cannot be chosen
+    b.send({ type: 'claim', fid: 'hedge' });
+    assert.strictEqual((await b.waitFor((m) => m.type === 'claimResult')).reason, 'gone');
+
+    // when the time runs out, the next paragraph replaces this one
+    b.clear();
+    room.round.startedAt -= room.round.duration;
+    const next = await b.waitFor((m) => m.type === 'state' && m.round && m.round.step === 2, 2000);
+    assert.notStrictEqual(next.round.para, st.round.para);
+    assert.strictEqual(next.round.marks.length, 0);
+
+    // Jun chooses something and clicks the wrong place: frozen
+    b.send({ type: 'claim', fid: next.round.tray[0].fid });
     const bClaim = await b.waitFor((m) => m.type === 'claimResult');
+    assert.ok(bClaim.ok);
     const t = room.round.text;
-    const wrongSeg = t.segs.findIndex((s) => s.pf.indexOf(bClaim.fid) < 0 && t.sents[s.si].sf.indexOf(bClaim.fid) < 0);
+    const wrongSeg = t.paragraphs[next.round.para].segIdx.find((gi) => t.segs[gi].pf.indexOf(bClaim.fid) < 0 && t.sents[t.segs[gi].si].sf.indexOf(bClaim.fid) < 0);
     b.send({ type: 'find', seg: wrongSeg });
     const miss = await b.waitFor((m) => m.type === 'findResult');
     assert.strictEqual(miss.reason, 'wrong');
 
-    // end the round early and check the results
-    room.round.startedAt -= room.round.duration + 10000;
-    const overA = await a.waitFor((m) => m.type === 'over', 2000);
-    const overB = await b.waitFor((m) => m.type === 'over', 2000);
+    // let the remaining paragraphs time out and check the results
+    const hurry = setInterval(() => { if (room.round && room.phase === 'playing') room.round.startedAt -= room.round.duration; }, 60);
+    const overA = await a.waitFor((m) => m.type === 'over', 3000);
+    const overB = await b.waitFor((m) => m.type === 'over', 3000);
+    clearInterval(hurry);
     assert.strictEqual(overA.players[0].finds.length, 1);
     assert.strictEqual(overA.found.length, 1);
     assert.ok(overA.missed.length > 0);

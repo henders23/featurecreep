@@ -20,7 +20,6 @@
   };
   const app = document.getElementById('app');
   const toastEl = document.getElementById('toast');
-  const START_OFFSET = 150;
 
   // ---------------------------------------------------------------- helpers
   function esc(s) {
@@ -61,6 +60,48 @@
   function saveName(n) {
     try { localStorage.setItem('fc-name', n); } catch (e) { /* ignore */ }
   }
+  function soundOn() {
+    try { return localStorage.getItem('fc-sound') !== 'off'; } catch (e) { return true; }
+  }
+  function setSound(on) {
+    try { localStorage.setItem('fc-sound', on ? 'on' : 'off'); } catch (e) { /* ignore */ }
+  }
+
+  // ---------------------------------------------------------------- sound
+  // The chime is synthesised, so there is no audio file to load. Browsers only
+  // allow sound after the player has clicked something, so the audio context is
+  // created on the first click.
+  let audio = null;
+  function unlockAudio() {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!audio) { try { audio = new AC(); } catch (e) { return; } }
+    if (audio.state === 'suspended') audio.resume();
+  }
+  function note(freq, at, len, peak) {
+    const osc = audio.createOscillator();
+    const gain = audio.createGain();
+    osc.type = 'triangle';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.0001, at);
+    gain.gain.exponentialRampToValueAtTime(peak, at + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, at + len);
+    osc.connect(gain);
+    gain.connect(audio.destination);
+    osc.start(at);
+    osc.stop(at + len + 0.02);
+  }
+  // Two rising notes for a correct find; a third when it clears the paragraph.
+  function playCorrect(cleared) {
+    if (!audio || !soundOn()) return;
+    const t = audio.currentTime + 0.01;
+    note(783.99, t, 0.22, 0.16);          // G5
+    note(1174.66, t + 0.09, 0.34, 0.16);  // D6
+    if (cleared) note(1567.98, t + 0.2, 0.5, 0.14); // G6
+  }
+  document.addEventListener('pointerdown', unlockAudio);
+  document.addEventListener('keydown', unlockAudio);
+
   const brand = (big) => '<div class="brand' + (big ? ' big' : '') + '"><span class="brand-mark">Fc</span>Feature Creep</div>';
   const legendHtml = (cats) => cats.map((c) => {
     const k = S.cat.categories[c];
@@ -127,8 +168,7 @@
         onState(msg);
         break;
       case 'claimResult':
-        if (!msg.ok && msg.reason === 'gone') toast('Someone else claimed that one first.');
-        if (msg.ok && msg.dropped) toast('Dropped ' + feature(msg.dropped).name + '. Now hunting ' + feature(msg.fid).name + '.');
+        if (!msg.ok && msg.reason === 'gone') toast('That one has already been found in this paragraph.');
         break;
       case 'findResult':
         onFindResult(msg);
@@ -176,7 +216,7 @@
     app.innerHTML =
       '<main class="home"><div class="home-inner">' +
       '<div class="home-hero">' + brand(true) +
-      '<p>A reading game for up to four players. An academic essay scrolls up towards a shredder; claim a feature of academic writing, then find it in the text before it’s gone.</p>' +
+      '<p>A reading game for up to four players. An academic essay appears one paragraph at a time. Choose a feature of academic writing, then find it in the paragraph. Find every feature before the time runs out and the next paragraph takes its place.</p>' +
       '</div>' +
       '<div class="field" style="max-width:360px"><label for="name">Your name</label><input id="name" class="input" maxlength="18" autocomplete="nickname" value="' + esc(savedName()) + '" placeholder="e.g. Amira"></div>' +
       '<div class="home-grid">' +
@@ -242,7 +282,7 @@
     }).join('');
     const textOptions = '<option value="random"' + (r.settings.textId === 'random' ? ' selected' : '') + '>Random text</option>' +
       S.cat.texts.map((t) => '<option value="' + t.id + '"' + (r.settings.textId === t.id ? ' selected' : '') + '>' + esc(t.title) + ' (' + esc(t.discipline) + ')</option>').join('');
-    const speedButtons = S.cat.speeds.map((s) => '<button type="button" data-action="speed" data-speed="' + s + '" aria-pressed="' + (r.settings.speed === s) + '"' + (host ? '' : ' disabled') + '>' + (s === 'gentle' ? 'Gentle · about 3 min' : 'Brisk · about 2 min') + '</button>').join('');
+    const speedButtons = S.cat.speeds.map((s) => '<button type="button" data-action="speed" data-speed="' + s + '" aria-pressed="' + (r.settings.speed === s) + '"' + (host ? '' : ' disabled') + '>' + (s === 'gentle' ? 'Gentle · more time per paragraph' : 'Brisk · less time per paragraph') + '</button>').join('');
     const players = r.players.map((p) =>
       '<div class="player-row">' + avatar(p, p.id === S.me) +
       '<span class="name">' + esc(p.name) + (p.id === S.me ? ' <span class="muted" style="font-weight:400">(you)</span>' : '') + '</span>' +
@@ -264,9 +304,10 @@
       '</section><aside class="lobby-side">' +
       '<div class="panel"><div class="panel-head">Players <span class="sub">' + r.players.length + ' of 4</span></div>' + players + '</div>' +
       '<div class="panel"><div class="panel-head">How to play</div><ol class="steps">' +
-      '<li><b>1</b><span><strong>Claim.</strong> Click a feature in the tray. Hover over it first for a definition.</span></li>' +
-      '<li><b>2</b><span><strong>Find.</strong> Click the words, or the sentence, where it appears in the text.</span></li>' +
-      '<li><b>3</b><span><strong>Score.</strong> Right first time scores. A wrong click pauses you briefly, so read before you click.</span></li>' +
+      '<li><b>1</b><span><strong>Read.</strong> The essay appears one paragraph at a time, each with a time limit.</span></li>' +
+      '<li><b>2</b><span><strong>Choose.</strong> The tray shows every feature still hidden in the paragraph. Click one to hunt it. Hover over it first for a definition.</span></li>' +
+      '<li><b>3</b><span><strong>Find.</strong> Click the words, or the sentence, where it appears. The first player to click each one scores. A wrong click pauses you briefly, so read before you click.</span></li>' +
+      '<li><b>4</b><span><strong>Clear.</strong> Find everything and the next paragraph arrives early. When the time runs out, it arrives anyway.</span></li>' +
       '</ol></div>' +
       '</aside></div></main>';
 
@@ -277,10 +318,6 @@
   // ---------------------------------------------------------------- game
   function buildGame() {
     const t = S.text;
-    const paras = t.paragraphs.map((p, i) =>
-      '<div class="para"><span class="label">Paragraph ' + (i + 1) + ' · ' + esc(p.label) + '</span><p>' +
-      p.segs.map((s) => '<a class="seg" href="#" data-action="find" data-seg="' + s.i + '">' + esc(s.t) + '</a>').join('') +
-      '</p></div>').join('');
     const cats = Array.from(new Set(S.focusIds.map((fid) => feature(fid).cat)));
     const focusName = cats.length > 1 ? 'Mix' : S.cat.categories[cats[0]].name;
     const speed = S.room.settings.speed === 'brisk' ? 'Brisk' : 'Gentle';
@@ -291,19 +328,22 @@
       '<span style="font-size:14px;color:var(--soft)">' + esc(t.title) + '</span>' +
       '<span class="tag-chip">' + esc(focusName) + ' · ' + speed + '</span></div>' +
       '<div class="topbar-right">' +
-      '<div class="progress"><span>Progress</span><span class="progress-track"><span id="bar"></span></span><span class="mono" id="pct">0%</span></div>' +
+      '<div class="progress"><span id="stepLabel">Paragraph</span><span class="step-dots" id="stepDots"></span></div>' +
       '<span class="score">Score <strong id="myScore">0</strong></span>' +
+      '<button type="button" class="btn btn-secondary btn-small" data-action="sound" id="soundBtn" aria-pressed="' + soundOn() + '">' + (soundOn() ? 'Sound on' : 'Sound off') + '</button>' +
       (isHost() ? '<button type="button" class="btn btn-secondary btn-small" data-action="pause" id="pauseBtn">Pause</button>' : '') +
       '</div></header>' +
       '<div class="game-body">' +
       '<section class="doc" id="doc" aria-label="The text">' +
-      '<div class="status" id="status"><span class="status-main" id="statusMain"></span><span id="statusSide" class="muted">Text leaves at the top</span></div>' +
-      '<div class="well" id="well"><div class="column" id="column">' + paras + '</div>' +
+      '<div class="status" id="status"><span class="status-main" id="statusMain"></span>' +
+      '<span class="status-side"><span id="statusSide" class="muted"></span><span class="timer mono" id="timer" aria-label="Time left for this paragraph"></span></span></div>' +
+      '<div class="timebar"><span id="timebar"></span></div>' +
+      '<div class="well" id="well"><div class="column" id="column"></div>' +
       '<div class="overlay" id="overlay" hidden></div></div>' +
       '</section>' +
       '<aside class="panel board" aria-label="Players"><div class="panel-head">Players <span class="sub" id="playerCount"></span></div><div class="board-list" id="board"></div></aside>' +
       '</div>' +
-      '<section class="panel" aria-label="Features to claim"><div class="panel-head">Claim a feature<span class="legend">' + legendHtml(cats) + '</span></div><div class="tiles" id="tiles"></div></section>' +
+      '<section class="panel" aria-label="Features to find"><div class="panel-head"><span>Still to find in this paragraph <span class="sub" id="trayCount"></span></span><span class="legend">' + legendHtml(cats) + '</span></div><div class="tiles" id="tiles"></div></section>' +
       '</main>';
 
     S.game = {
@@ -313,24 +353,44 @@
       status: document.getElementById('status'),
       statusMain: document.getElementById('statusMain'),
       statusSide: document.getElementById('statusSide'),
+      timer: document.getElementById('timer'),
+      timebar: document.getElementById('timebar'),
       overlay: document.getElementById('overlay'),
       board: document.getElementById('board'),
       playerCount: document.getElementById('playerCount'),
       tiles: document.getElementById('tiles'),
-      bar: document.getElementById('bar'),
-      pct: document.getElementById('pct'),
+      trayCount: document.getElementById('trayCount'),
+      stepLabel: document.getElementById('stepLabel'),
+      stepDots: document.getElementById('stepDots'),
       score: document.getElementById('myScore'),
       pauseBtn: document.getElementById('pauseBtn'),
       segEls: {},
-      trayKeys: '',
-      seenKeys: new Set(),
+      para: -1,
+      trayKeys: null,
+      stepKey: '',
+      sideText: null,
       marked: new Set(),
-      pctShown: -1,
+      timerText: '',
       statusHtml: '',
       overlayText: ''
     };
-    app.querySelectorAll('.seg').forEach((el) => { S.game.segEls[el.dataset.seg] = el; });
     updateGame();
+  }
+
+  // Puts one paragraph on screen, replacing the one before it.
+  function showParagraph(pi) {
+    const g = S.game;
+    const p = S.text.paragraphs[pi];
+    g.para = pi;
+    g.column.innerHTML =
+      '<div class="para"><span class="label">Paragraph ' + (pi + 1) + ' of ' + S.text.paragraphs.length + ' · ' + esc(p.label) + '</span><p>' +
+      p.segs.map((s) => '<a class="seg" href="#" data-action="find" data-seg="' + s.i + '">' + esc(s.t) + '</a>').join('') +
+      '</p></div>';
+    g.segEls = {};
+    g.column.querySelectorAll('.seg').forEach((el) => { g.segEls[el.dataset.seg] = el; });
+    g.marked = new Set();
+    clearTimeout(g.gainTimer);
+    g.gain = '';
   }
 
   function updateGame() {
@@ -339,36 +399,46 @@
     const r = S.room.round;
     const meP = player(S.me);
 
-    // tray
-    const keys = r.tray.map((t) => t.key).join(',');
+    if (r.para !== g.para) showParagraph(r.para);
+
+    const stepKey = r.step + '/' + r.steps;
+    if (stepKey !== g.stepKey) {
+      g.stepKey = stepKey;
+      g.stepLabel.textContent = 'Paragraph ' + r.step + ' of ' + r.steps;
+      g.stepDots.innerHTML = Array.from({ length: r.steps }, (_, i) => '<i class="' + (i + 1 < r.step ? 'done' : (i + 1 === r.step ? 'on' : '')) + '"></i>').join('');
+    }
+
+    // tray: one tile for each feature still to be found in this paragraph
+    const mine = meP ? meP.claim : null;
+    const keys = r.tray.map((t) => t.fid + ':' + t.left).join(',') + '|' + mine;
     if (keys !== g.trayKeys) {
-      const first = g.trayKeys === '';
       g.trayKeys = keys;
-      g.tiles.innerHTML = r.tray.map((tile) => {
+      g.tiles.innerHTML = r.tray.length ? r.tray.map((tile) => {
         const f = feature(tile.fid);
         const c = category(tile.fid);
-        const fresh = !first && !g.seenKeys.has(tile.key);
-        return '<div class="tile-wrap" style="--cat:' + c.color + ';--tint:' + c.tint + '"><button type="button" class="tile' + (fresh ? ' fresh' : '') + '" data-action="claim" data-key="' + tile.key + '">' +
+        const on = tile.fid === mine;
+        const foot = on ? 'Hunting now' : (tile.review ? 'Missed last round' : 'Click to hunt');
+        return '<div class="tile-wrap" style="--cat:' + c.color + ';--tint:' + c.tint + '"><button type="button" class="tile" data-action="claim" data-fid="' + tile.fid + '" aria-pressed="' + on + '">' +
           '<span class="tile-top"><span>' + esc(c.name) + '</span><span class="pts">+' + f.pts + '</span></span>' +
           '<span class="tile-name">' + esc(f.name) + '</span>' +
-          '<span class="tile-foot">' + (fresh ? 'New' : 'Click to claim') + '</span></button>' +
-          '<div class="tip"><span class="k">' + esc(c.name) + ' · ' + f.pts + ' points</span><strong>' + esc(f.name) + '</strong><span class="d">' + esc(f.def) + '</span><span class="e">e.g. ' + esc(f.ex) + '</span></div></div>';
-      }).join('');
-      r.tray.forEach((t) => g.seenKeys.add(t.key));
+          '<span class="tile-foot"><span>' + foot + '</span><span class="left">' + tile.left + ' to find</span></span></button>' +
+          '<div class="tip"><span class="k">' + esc(c.name) + ' · ' + f.pts + ' points each</span><strong>' + esc(f.name) + '</strong><span class="d">' + esc(f.def) + '</span><span class="e">e.g. ' + esc(f.ex) + '</span></div></div>';
+      }).join('') : '<p class="tiles-empty">Everything in this paragraph has been found.</p>';
     }
+    g.trayCount.textContent = (r.total - r.found) + ' of ' + r.total + ' left';
 
     // players
     const top = Math.max(30, ...S.room.players.map((p) => p.score));
     const now = serverNow();
     g.playerCount.textContent = S.room.players.length + ' of 4';
     g.board.innerHTML = S.room.players.slice().sort((a, b) => b.score - a.score).map((p) => {
-      const mine = p.id === S.me;
+      const isMe = p.id === S.me;
       const frozen = p.cooldownUntil > now;
-      let status = p.claim ? 'Hunting: ' + feature(p.claim).name : (mine ? 'Choosing a feature' : 'Reading');
-      let col = p.claim && mine ? p.color : 'var(--muted)';
+      let status = p.claim ? 'Hunting: ' + feature(p.claim).name : (isMe ? 'Choosing a feature' : 'Reading');
+      let col = p.claim && isMe ? p.color : 'var(--muted)';
       if (frozen) { status = 'Paused for a moment'; col = 'var(--red)'; }
-      return '<div class="board-row' + (mine ? ' me' : '') + '"><div class="board-top">' + avatar(p, mine) +
-        '<span class="board-name"><strong>' + esc(mine ? 'You' : p.name) + '</strong><span style="color:' + col + '">' + esc(status) + '</span></span>' +
+      return '<div class="board-row' + (isMe ? ' me' : '') + '"><div class="board-top">' + avatar(p, isMe) +
+        '<span class="board-name"><strong>' + esc(isMe ? 'You' : p.name) + '</strong><span style="color:' + col + '">' + esc(status) + '</span></span>' +
         '<span class="board-score">' + p.score + '</span></div>' +
         '<div class="bar"><span style="width:' + Math.max(2, Math.round(p.score / top * 100)) + '%;background:' + p.color + '"></span></div></div>';
     }).join('');
@@ -397,10 +467,11 @@
     const g = S.game;
     if (msg.ok) {
       flash(msg.seg, 'ok');
+      playCorrect(msg.cleared);
       if (g) {
-        g.statusSide.innerHTML = '<span class="gain">Found · +' + msg.pts + '</span>';
+        g.gain = '<span class="gain">Found · +' + msg.pts + '</span>';
         clearTimeout(g.gainTimer);
-        g.gainTimer = setTimeout(() => { g.statusSide.textContent = 'Text leaves at the top'; }, 1500);
+        g.gainTimer = setTimeout(() => { g.gain = ''; }, 1500);
       }
     } else if (msg.reason === 'wrong') {
       flash(msg.seg, 'bad');
@@ -408,7 +479,7 @@
       flash(msg.seg, 'bad');
       toast('Someone already found that one. Look for another.');
     } else if (msg.reason === 'no-claim') {
-      toast('Claim a feature first, then find it in the text.');
+      toast('Choose a feature from the tray first, then find it in the paragraph.');
     }
   }
 
@@ -425,37 +496,42 @@
       const r = S.room.round;
       const now = serverNow();
       const elapsed = (r.pausedAt || now) - r.startedAt - r.pausedTotal;
-      const progress = Math.max(0, Math.min(1, elapsed / r.duration));
-      const wellH = g.well.clientHeight;
-      const innerH = g.column.offsetHeight;
-      const offset = START_OFFSET + progress * (wellH + innerH - START_OFFSET);
-      g.column.style.transform = 'translateY(' + (-offset).toFixed(1) + 'px)';
+      const left = Math.max(0, Math.min(r.duration, r.duration - elapsed));
 
-      const pct = Math.round(progress * 100);
-      if (pct !== g.pctShown) {
-        g.pctShown = pct;
-        g.bar.style.width = pct + '%';
-        g.pct.textContent = pct + '%';
-      }
+      // the paragraph's clock
+      const secs = Math.ceil(left / 1000);
+      const timerText = r.cleared ? 'Done' : Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0');
+      if (timerText !== g.timerText) { g.timerText = timerText; g.timer.textContent = timerText; }
+      const low = !r.cleared && elapsed >= 0 && left <= 10000;
+      g.timer.classList.toggle('low', low);
+      g.timebar.classList.toggle('low', low);
+      g.timebar.classList.toggle('done', r.cleared);
+      g.timebar.style.width = (r.cleared ? 100 : left / r.duration * 100).toFixed(2) + '%';
+
+      const side = g.gain || (r.found + ' of ' + r.total + ' found');
+      if (side !== g.sideText) { g.sideText = side; g.statusSide.innerHTML = side; }
 
       const meP = player(S.me);
       const frozenFor = meP ? meP.cooldownUntil - now : 0;
-      let html = '<span class="dot" style="background:var(--faint)"></span>Click a feature below to claim it';
+      let html = '<span class="dot" style="background:var(--faint)"></span>Choose a feature below to hunt for';
       let frozen = false;
-      if (meP && meP.claim) {
+      if (r.cleared) {
+        html = '<span class="dot" style="background:var(--green)"></span><strong>Paragraph cleared.</strong> ' + (r.step < r.steps ? 'The next one is coming.' : 'That was the last one.');
+      } else if (meP && meP.claim) {
         if (frozenFor > 0) {
           html = 'Not there. Try again in ' + Math.ceil(frozenFor / 1000) + 's';
           frozen = true;
         } else {
-          html = '<span class="dot" style="background:' + category(meP.claim).color + '"></span>Hunting <strong>' + esc(feature(meP.claim).name) + '</strong> · click it in the text';
+          html = '<span class="dot" style="background:' + category(meP.claim).color + '"></span>Hunting <strong>' + esc(feature(meP.claim).name) + '</strong> · click it in the paragraph';
         }
       }
       if (html !== g.statusHtml) { g.statusHtml = html; g.statusMain.innerHTML = html; }
       g.status.classList.toggle('frozen', frozen);
+      g.status.classList.toggle('cleared', r.cleared);
       g.doc.classList.toggle('frozen', frozen);
 
       let overlay = '';
-      if (elapsed < 0) overlay = '<span class="big">' + Math.ceil(-elapsed / 1000) + '</span><span class="msg">Get ready. You can claim a feature now.</span>';
+      if (elapsed < 0) overlay = '<span class="big">' + Math.ceil(-elapsed / 1000) + '</span><span class="msg">Get ready. The first paragraph is about to appear.</span>';
       else if (r.pausedAt) overlay = '<h2>Paused</h2><span class="msg">The host has paused the round.</span>';
       if (overlay !== g.overlayText) {
         g.overlayText = overlay;
@@ -651,7 +727,7 @@
 
     const host = isHost();
     const next = '<div class="panel next-box"><div style="display:flex;flex-direction:column;gap:4px"><strong>' +
-      (spots ? 'The next round brings these back more often.' : 'Nothing slipped through. Try a faster speed or a new text.') + '</strong>' +
+      (spots ? 'The next round flags these in the tray, so you can look out for them.' : 'Nothing slipped through. Try a faster speed or a new text.') + '</strong>' +
       '<span>' + (host ? 'Go back to the lobby to set up the next round.' : 'Waiting for the host to set up the next round.') + '</span></div>' +
       (host ? '<button type="button" class="btn btn-primary" data-action="lobby">Back to the lobby</button>' : '') + '</div>';
 
@@ -677,7 +753,14 @@
     if (a === 'speed') send({ type: 'settings', settings: { speed: el.dataset.speed } });
     if (a === 'start') send({ type: 'start' });
     if (a === 'pause') send({ type: 'pause' });
-    if (a === 'claim') send({ type: 'claim', key: Number(el.dataset.key) });
+    if (a === 'claim') send({ type: 'claim', fid: el.dataset.fid });
+    if (a === 'sound') {
+      const on = !soundOn();
+      setSound(on);
+      el.setAttribute('aria-pressed', on);
+      el.textContent = on ? 'Sound on' : 'Sound off';
+      if (on) { unlockAudio(); playCorrect(false); }
+    }
     if (a === 'lobby') send({ type: 'lobby' });
     if (a === 'fb-next') { S.fbStep = Math.min(2, S.fbStep + 1); renderFeedback(); }
     if (a === 'fb-back') { S.fbStep = Math.max(0, S.fbStep - 1); renderFeedback(); }

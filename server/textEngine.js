@@ -74,6 +74,10 @@ function compile(text) {
     const n = Number(unit.slice(1));
     return unit[0] === 'g' ? [n] : sents[n].segIdx.slice();
   };
+  compiled.unitPara = (unit) => {
+    const n = Number(unit.slice(1));
+    return unit[0] === 'g' ? segs[n].pi : sents[n].pi;
+  };
   compiled.unitQuote = (unit) => {
     return compiled.unitSegs(unit).map((gi) => segs[gi].t).join('').trim();
   };

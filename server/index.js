@@ -102,7 +102,7 @@ function createServer(opts) {
           break;
         case 'claim':
           if (room) {
-            const res = room.claim(me, Number(msg.key));
+            const res = room.claim(me, String(msg.fid));
             ws.send(JSON.stringify(Object.assign({ type: 'claimResult' }, res)));
             if (res.ok) pushState(room);
           }
@@ -125,11 +125,12 @@ function createServer(opts) {
 
   const ticker = setInterval(() => {
     for (const room of manager.rooms.values()) {
-      if (room.tick()) {
+      const moved = room.tick();
+      if (moved === 'over') {
         broadcast(room, room.results);
-        pushState(room);
         pushGames();
       }
+      if (moved) pushState(room);
     }
   }, options.tickMs || 250);
 
