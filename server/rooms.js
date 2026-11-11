@@ -27,7 +27,7 @@ const SPEEDS = {
   gentle: { base: 15000, perChar: 1000 / 14, perUnit: 5000 },
   brisk: { base: 10000, perChar: 1000 / 20, perUnit: 3500 }
 };
-const COLORS = ['#A16207', '#0F766E', '#6D28D9', '#BE185D']; // one per seat, readable on white
+const COLORS = ['#FFE45C', '#FFB8D2', '#A8E6B4', '#A9D4FF']; // one highlighter per seat: yellow, pink, green, blue
 const CODE_WORDS = ['HEDGE', 'THESIS', 'CLAUSE', 'SOURCE', 'TOPIC', 'CITE', 'NOUN', 'VERB', 'ESSAY', 'GLOSS'];
 
 function textById(id) {

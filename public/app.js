@@ -29,13 +29,10 @@
     const n = parseInt(hex.slice(1), 16);
     return 'rgba(' + (n >> 16) + ', ' + ((n >> 8) & 255) + ', ' + (n & 255) + ', ' + a + ')';
   }
-  function initials(name, isMe) {
-    if (isMe) return 'You';
-    const parts = String(name).trim().split(/\s+/);
-    return (parts.length > 1 ? parts[0][0] + parts[1][0] : String(name).slice(0, 2)).toUpperCase();
-  }
-  function avatar(p, isMe) {
-    return '<span class="avatar" style="background:' + rgba(p.color, 0.14) + ';color:' + p.color + '">' + esc(initials(p.name, isMe)) + '</span>';
+  // Each player marks the text with a highlighter pen of their own colour.
+  const PENS = ['#FFE45C', '#FFB8D2', '#A8E6B4', '#A9D4FF'];
+  function avatar(p) {
+    return '<span class="pen" style="background:' + p.color + '"></span>';
   }
   function feature(fid) { return S.cat.features[fid]; }
   function category(fid) { return S.cat.categories[feature(fid).cat]; }
@@ -114,7 +111,7 @@
   document.addEventListener('pointerdown', unlockAudio);
   document.addEventListener('keydown', unlockAudio);
 
-  const brand = (big) => '<div class="brand' + (big ? ' big' : '') + '"><span class="brand-mark">Fc</span>Feature Creep</div>';
+  const brand = () => '<div class="brand">Feature <mark>Creep</mark></div>';
   const legendHtml = (cats) => cats.map((c) => {
     const k = S.cat.categories[c];
     return '<span><span class="sq" style="background:' + k.color + '"></span>' + esc(k.name) + '</span>';
@@ -225,17 +222,31 @@
 
   // ---------------------------------------------------------------- home
   function renderHome() {
+    const hl = (i, words, name) => '<span class="hl" style="background:' + PENS[i] + '">' + words + '</span><small>' + name + '</small>';
     app.innerHTML =
       '<main class="home"><div class="home-inner">' +
-      '<div class="home-hero">' + brand(true) +
-      '<p>A reading game for up to four players. An academic essay appears one paragraph at a time. Choose a feature of academic writing, then find it in the paragraph. Find every feature before the time runs out and the next paragraph takes its place.</p>' +
+      '<div class="home-top">' +
+      '<section class="hero">' +
+      '<h1>Feature <mark>Creep</mark></h1>' +
+      '<p>A reading race for up to four players. An essay appears one paragraph at a time. Mark every feature of academic writing before the clock runs out.</p>' +
+      '<div class="sample" aria-hidden="true"><div class="timebar"><span></span></div>' +
+      '<div class="sample-head"><span class="label">Paragraph 2 of 4</span><span class="mono">0:42</span></div>' +
+      '<p>' + hl(1, 'However', 'Signposting') + ', ' + hl(2, 'this study', 'Reference back') + ' relied on self-reported phone use, which ' + hl(0, 'may not be', 'Hedging') + ' accurate.</p></div>' +
+      '</section>' +
+      '<section class="join">' +
+      '<div class="name-card"><label for="name">Your name</label>' +
+      '<input id="name" class="name-input" maxlength="18" autocomplete="nickname" value="' + esc(savedName()) + '" placeholder="e.g. Amira">' +
+      '<button type="button" class="btn btn-primary" data-action="create">Start a new game</button>' +
+      '<span class="note">You host: you choose the text and the features, and decide when it starts.</span>' +
+      '<p class="error" role="alert">' + esc(S.error) + '</p></div>' +
+      '<div><div class="list-head"><span class="label">Or join an open game</span><span class="sub">Up to 4 players each</span></div>' +
+      '<div id="games" class="games"></div></div>' +
+      '</section></div>' +
+      '<div class="how">' +
+      '<div><b>1</b><span><strong>Read.</strong> One paragraph at a time, each against the clock.</span></div>' +
+      '<div><b>2</b><span><strong>Mark.</strong> Choose a feature, then click where it appears. First to mark it scores.</span></div>' +
+      '<div><b>3</b><span><strong>Clear.</strong> Find everything early and every player earns a bonus.</span></div>' +
       '</div>' +
-      '<div class="field" style="max-width:360px"><label for="name">Your name</label><input id="name" class="input" maxlength="18" autocomplete="nickname" value="' + esc(savedName()) + '" placeholder="e.g. Amira"></div>' +
-      '<div class="home-grid">' +
-      '<div class="panel"><div class="panel-head">Start a new game</div><div class="card-body"><p>You’ll host the game: you choose the text and the features, and you decide when it starts.</p><button type="button" class="btn btn-primary" data-action="create">Start a new game</button></div></div>' +
-      '<div class="panel"><div class="panel-head">Join a game <span class="sub">Up to 4 players each</span></div><div id="games" class="games"></div></div>' +
-      '</div>' +
-      '<p class="error" role="alert">' + esc(S.error) + '</p>' +
       '</div></main>';
     renderGames();
   }
@@ -244,17 +255,17 @@
     const box = document.getElementById('games');
     if (!box) return;
     if (!S.games.length) {
-      box.innerHTML = '<p class="games-empty">No games yet. Start one, or wait for someone else to.</p>';
+      box.innerHTML = '<p class="games-empty">No open games yet. Start one, or wait here: new games appear as soon as someone starts them.</p>';
       return;
     }
     box.innerHTML = S.games.map((g) => {
-      const dots = Array.from({ length: g.max }, (_, i) => '<i class="' + (i < g.players ? 'on' : '') + '"></i>').join('');
+      const seats = Array.from({ length: g.max }, (_, i) => i < g.players ? '<i class="on" style="background:' + PENS[i % PENS.length] + '"></i>' : '<i></i>').join('');
       const status = g.full ? 'Full' : (g.phase === 'lobby' ? 'Waiting to start' : (g.phase === 'playing' ? 'Round in progress' : 'Reviewing results'));
       return '<div class="game-row' + (g.full ? ' full' : '') + '">' +
         '<div class="game-info"><strong>' + esc(g.host ? g.host + '’s game' : 'Game') + '</strong>' +
         '<span><span class="mono">' + esc(g.code) + '</span> · ' + status + '</span></div>' +
-        '<div class="seats" aria-label="' + g.players + ' of ' + g.max + ' players"><span class="seat-dots">' + dots + '</span><span class="mono">' + g.players + '/' + g.max + '</span></div>' +
-        '<button type="button" class="btn btn-secondary btn-small" data-action="join" data-code="' + esc(g.code) + '"' + (g.full ? ' disabled' : '') + '>' + (g.full ? 'Full' : 'Join') + '</button>' +
+        '<div class="seats" role="img" aria-label="' + g.players + ' of ' + g.max + ' players">' + seats + '</div>' +
+        '<button type="button" class="btn btn-small" data-action="join" data-code="' + esc(g.code) + '"' + (g.full ? ' disabled' : '') + '>' + (g.full ? 'Full' : 'Join') + '</button>' +
         '</div>';
     }).join('');
   }
@@ -296,15 +307,15 @@
       S.cat.texts.map((t) => '<option value="' + t.id + '"' + (r.settings.textId === t.id ? ' selected' : '') + '>' + esc(t.title) + ' (' + esc(t.discipline) + ')</option>').join('');
     const speedButtons = S.cat.speeds.map((s) => '<button type="button" data-action="speed" data-speed="' + s + '" aria-pressed="' + (r.settings.speed === s) + '"' + (host ? '' : ' disabled') + '>' + (s === 'gentle' ? 'Gentle · more time per paragraph' : 'Brisk · less time per paragraph') + '</button>').join('');
     const players = r.players.map((p) =>
-      '<div class="player-row">' + avatar(p, p.id === S.me) +
+      '<div class="player-row">' + avatar(p) +
       '<span class="name">' + esc(p.name) + (p.id === S.me ? ' <span class="muted" style="font-weight:400">(you)</span>' : '') + '</span>' +
       (p.id === r.hostId ? '<span class="badge">Host</span>' : '') + '</div>').join('');
 
     app.innerHTML =
       '<main class="page">' +
       '<header class="topbar"><div class="topbar-left">' + brand() + '<span class="divider"></span>' +
-      '<span class="muted" style="font-size:14px">Game</span><span class="code">' + esc(r.code) + '</span></div>' +
-      '<div class="topbar-right"><span class="muted" style="font-size:14px">' + (host ? 'You’re the host. Choose the round, then start it.' : 'Waiting for the host to start the round.') + '</span>' +
+      '<span class="tag-chip">Game</span><span class="code">' + esc(r.code) + '</span></div>' +
+      '<div class="topbar-right"><span class="tag-chip">' + (host ? 'You’re the host. Choose the round, then start it.' : 'Waiting for the host to start the round.') + '</span>' +
       '<button type="button" class="btn btn-secondary btn-small" data-action="leave">Leave game</button></div></header>' +
       '<div class="lobby-grid"><section class="lobby-main">' +
       '<div class="panel"><div class="panel-head">What will you hunt for?</div><div class="focus-grid">' + focusCards + '</div></div>' +
@@ -317,7 +328,7 @@
       '<div class="panel"><div class="panel-head">Players <span class="sub">' + r.players.length + ' of 4</span></div>' + players + '</div>' +
       '<div class="panel"><div class="panel-head">How to play</div><ol class="steps">' +
       '<li><b>1</b><span><strong>Read.</strong> The essay appears one paragraph at a time, each with a time limit.</span></li>' +
-      '<li><b>2</b><span><strong>Choose.</strong> The tray shows every feature still hidden in the paragraph. Click one to hunt it. Hover over it first for a definition.</span></li>' +
+      '<li><b>2</b><span><strong>Choose.</strong> The tray shows every feature still hidden in the paragraph. Click one to mark it. Hover over it first for a definition.</span></li>' +
       '<li><b>3</b><span><strong>Find.</strong> Click the words, or the sentence, where it appears. The first player to click each one scores. A wrong click pauses you briefly, so read before you click.</span></li>' +
       '<li><b>4</b><span><strong>Clear.</strong> Find everything before the time runs out and every player gets a bonus, bigger the more time is left. If the time runs out, you see what was missed.</span></li>' +
       '<li><b>5</b><span><strong>Streak.</strong> ' + S.cat.streakAt + ' correct finds in a row and each find is worth ×' + S.cat.streakMult + ', until a wrong click.</span></li>' +
@@ -337,9 +348,8 @@
 
     app.innerHTML =
       '<main class="page">' +
-      '<header class="topbar"><div class="topbar-left">' + brand() + '<span class="divider"></span>' +
-      '<span style="font-size:14px;color:var(--soft)">' + esc(t.title) + '</span>' +
-      '<span class="tag-chip">' + esc(focusName) + ' · ' + speed + '</span></div>' +
+      '<header class="topbar"><div class="topbar-left">' + brand() +
+      '<span class="tag-chip">' + esc(t.title) + ' · ' + esc(focusName) + ' · ' + speed + '</span></div>' +
       '<div class="topbar-right">' +
       '<div class="progress"><span id="stepLabel">Paragraph</span><span class="step-dots" id="stepDots"></span></div>' +
       '<span class="score">Score <strong id="myScore">0</strong></span>' +
@@ -348,16 +358,17 @@
       '</div></header>' +
       '<div class="game-body">' +
       '<section class="doc" id="doc" aria-label="The text">' +
-      '<div class="status" id="status"><span class="status-main" id="statusMain"></span>' +
-      '<span class="status-side"><span id="statusSide" class="muted"></span><span class="timer mono" id="timer" aria-label="Time left for this paragraph"></span></span></div>' +
       '<div class="timebar"><span id="timebar"></span></div>' +
+      '<div class="doc-head"><span class="label" id="paraLabel"></span>' +
+      '<span class="status-side"><span id="statusSide"></span><span class="timer" id="timer" aria-label="Time left for this paragraph"></span></span></div>' +
       '<div class="well" id="well"><div class="column" id="column"></div>' +
       '<div class="hint" id="hint" hidden></div>' +
       '<div class="overlay" id="overlay" hidden></div></div>' +
+      '<div class="status" id="status"><span class="status-main" id="statusMain"></span></div>' +
       '</section>' +
-      '<aside class="panel board" aria-label="Players"><div class="panel-head">Players <span class="sub" id="playerCount"></span></div><div class="board-list" id="board"></div></aside>' +
+      '<aside class="board" aria-label="Players"><div class="panel-head"><span>Highlighters</span><span class="sub" id="playerCount"></span></div><div class="board-list" id="board"></div></aside>' +
       '</div>' +
-      '<section class="panel" aria-label="Features to find"><div class="panel-head"><span>Still to find in this paragraph <span class="sub" id="trayCount"></span></span><span class="legend">' + legendHtml(cats) + '</span></div><div class="tiles" id="tiles"></div></section>' +
+      '<section class="tray" aria-label="Features to find"><div class="tray-head"><span class="label">Still to find in this paragraph <span class="sub" id="trayCount"></span></span><span class="legend">' + legendHtml(cats) + '</span></div><div class="tiles" id="tiles"></div></section>' +
       '</main>';
 
     S.game = {
@@ -367,6 +378,7 @@
       status: document.getElementById('status'),
       statusMain: document.getElementById('statusMain'),
       statusSide: document.getElementById('statusSide'),
+      paraLabel: document.getElementById('paraLabel'),
       timer: document.getElementById('timer'),
       timebar: document.getElementById('timebar'),
       overlay: document.getElementById('overlay'),
@@ -400,8 +412,9 @@
     const g = S.game;
     const p = S.text.paragraphs[pi];
     g.para = pi;
+    g.paraLabel.textContent = 'Paragraph ' + (pi + 1) + ' of ' + S.text.paragraphs.length + ' · ' + p.label;
     g.column.innerHTML =
-      '<div class="para"><span class="label">Paragraph ' + (pi + 1) + ' of ' + S.text.paragraphs.length + ' · ' + esc(p.label) + '</span><p>' +
+      '<div class="para"><p>' +
       p.segs.map((s) => '<a class="seg" href="#" data-action="find" data-seg="' + s.i + '">' + esc(s.t) + '</a>').join('') +
       '</p></div>';
     g.segEls = {};
@@ -451,6 +464,7 @@
 
     // tray: one tile for each feature still to be found in this paragraph
     const mine = meP ? meP.claim : null;
+    if (meP) g.tiles.style.setProperty('--me', meP.color);
     const keys = r.tray.map((t) => t.fid + ':' + t.left).join(',') + '|' + mine + '|' + hold;
     if (keys !== g.trayKeys) {
       g.trayKeys = keys;
@@ -458,33 +472,30 @@
         const f = feature(tile.fid);
         const c = category(tile.fid);
         const on = tile.fid === mine;
-        const foot = hold ? 'Missed' : (on ? 'Hunting now' : (tile.review ? 'Missed last round' : 'Click to hunt'));
+        const foot = hold ? 'Missed' : (on ? 'Marking now' : (tile.review ? 'Missed last round' : esc(c.name)));
         return '<div class="tile-wrap" style="--cat:' + c.color + ';--tint:' + c.tint + '"><button type="button" class="tile" data-action="claim" data-fid="' + tile.fid + '" aria-pressed="' + on + '"' + (hold ? ' disabled' : '') + '>' +
-          '<span class="tile-top"><span>' + esc(c.name) + '</span><span class="pts">+' + f.pts + '</span></span>' +
           '<span class="tile-name">' + esc(f.name) + '</span>' +
-          '<span class="tile-foot"><span>' + foot + '</span><span class="left">' + tile.left + ' to find</span></span></button>' +
+          '<span class="tile-foot"><span>' + foot + '</span><span class="left">' + tile.left + ' left · +' + f.pts + '</span></span></button>' +
           '<div class="tip"><span class="k">' + esc(c.name) + ' · ' + f.pts + ' points each</span><strong>' + esc(f.name) + '</strong><span class="d">' + esc(f.def) + '</span><span class="e">e.g. ' + esc(f.ex) + '</span></div></div>';
       }).join('') : '<p class="tiles-empty">Everything in this paragraph has been found.</p>';
     }
-    g.trayCount.textContent = (r.total - r.found) + ' of ' + r.total + ' left';
+    g.trayCount.textContent = '· ' + (r.total - r.found) + ' left';
 
     // players
-    const top = Math.max(30, ...S.room.players.map((p) => p.score));
     const now = serverNow();
     g.playerCount.textContent = S.room.players.length + ' of 4';
     g.board.innerHTML = S.room.players.slice().sort((a, b) => b.score - a.score).map((p) => {
       const isMe = p.id === S.me;
       const frozen = p.cooldownUntil > now;
-      let status = p.claim ? 'Hunting: ' + feature(p.claim).name : (isMe ? 'Choosing a feature' : 'Reading');
-      let col = p.claim && isMe ? p.color : 'var(--muted)';
-      if (frozen) { status = 'Paused for a moment'; col = 'var(--red)'; }
+      let status = p.claim ? 'Marking ' + feature(p.claim).name : (isMe ? 'Choosing a feature' : 'Reading');
+      if (frozen) status = '<span style="color:var(--red)">Paused for a moment</span>';
+      else status = esc(status);
       const hot = p.streak >= S.cat.streakAt;
       const pips = Array.from({ length: S.cat.streakAt }, (_, i) => '<i class="' + (i < p.streak ? 'on' : '') + '"></i>').join('');
       const streak = '<span class="streak' + (hot ? ' hot' : '') + '" title="' + (hot ? 'On a streak: finds are worth ×' + S.cat.streakMult : p.streak + ' correct in a row') + '">' + (hot ? '×' + S.cat.streakMult : pips) + '</span>';
-      return '<div class="board-row' + (isMe ? ' me' : '') + '"><div class="board-top">' + avatar(p, isMe) +
-        '<span class="board-name"><strong>' + esc(isMe ? 'You' : p.name) + '</strong><span style="color:' + col + '">' + esc(status) + '</span></span>' + streak +
-        '<span class="board-score">' + p.score + '</span></div>' +
-        '<div class="bar"><span style="width:' + Math.max(2, Math.round(p.score / top * 100)) + '%;background:' + p.color + '"></span></div></div>';
+      return '<div class="board-row' + (isMe ? ' me' : '') + '"><div class="board-top">' + avatar(p) +
+        '<span class="board-name"><strong>' + esc(isMe ? 'You' : p.name) + '</strong><span>' + status + '</span></span>' + streak +
+        '<span class="board-score">' + p.score + '</span></div></div>';
     }).join('');
     g.score.textContent = meP ? meP.score : 0;
 
@@ -492,16 +503,15 @@
     const marked = new Set();
     r.marks.forEach((m) => {
       const p = player(m.by);
-      const color = p ? p.color : '#71717A';
+      const color = p ? p.color : '#D9DCE2';
       m.segs.forEach((i) => {
         const el = g.segEls[i];
         if (!el) return;
-        el.style.background = rgba(color, 0.14);
-        el.style.boxShadow = 'inset 0 -2px 0 ' + color;
+        el.style.background = color;
         marked.add(String(i));
       });
     });
-    g.marked.forEach((i) => { if (!marked.has(i) && g.segEls[i]) { g.segEls[i].style.background = ''; g.segEls[i].style.boxShadow = ''; } });
+    g.marked.forEach((i) => { if (!marked.has(i) && g.segEls[i]) { g.segEls[i].style.background = ''; } });
     g.marked = marked;
 
     if (g.pauseBtn) g.pauseBtn.textContent = r.pausedAt ? 'Resume' : 'Pause';
@@ -569,7 +579,7 @@
 
       const meP = player(S.me);
       const frozenFor = meP ? meP.cooldownUntil - now : 0;
-      let html = '<span class="dot" style="background:var(--faint)"></span>Choose a feature below to hunt for';
+      let html = '<span class="dot" style="background:var(--line-2)"></span>Choose a feature below, then mark it in the paragraph';
       let frozen = false;
       if (cleared) {
         html = '<span class="dot" style="background:var(--green)"></span><strong>Paragraph cleared.</strong> +' + hold.bonus + ' bonus for everyone. ' + (last ? 'That was the last one.' : 'The next one is coming.');
@@ -580,7 +590,7 @@
           html = 'Not there. Try again in ' + Math.ceil(frozenFor / 1000) + 's';
           frozen = true;
         } else {
-          html = '<span class="dot" style="background:' + category(meP.claim).color + '"></span>Hunting <strong>' + esc(feature(meP.claim).name) + '</strong> · click it in the paragraph';
+          html = '<span class="dot" style="background:' + meP.color + '"></span>You are marking <strong>' + esc(feature(meP.claim).name) + '</strong> · click it in the paragraph';
         }
       }
       if (html !== g.statusHtml) { g.statusHtml = html; g.statusMain.innerHTML = html; }
@@ -600,7 +610,7 @@
       }
 
       let overlay = '';
-      if (elapsed < 0) overlay = '<span class="big">' + Math.ceil(-elapsed / 1000) + '</span><span class="msg">Get ready. The first paragraph is about to appear.</span>';
+      if (elapsed < 0) overlay = '<span class="big mono">' + Math.ceil(-elapsed / 1000) + '</span><span class="msg">Get ready. The first paragraph is about to appear.</span>';
       else if (r.pausedAt) overlay = '<h2>Paused</h2><span class="msg">The host has paused the round.</span>';
       if (overlay !== g.overlayText) {
         g.overlayText = overlay;
@@ -628,7 +638,7 @@
 
     app.innerHTML =
       '<main class="page">' +
-      '<header class="topbar"><div class="topbar-left">' + brand() + '<span class="divider"></span><span style="font-size:14px;color:var(--soft)">' + esc(R.text.title) + '</span><span class="tag-chip">' + esc(R.text.discipline) + '</span></div>' +
+      '<header class="topbar"><div class="topbar-left">' + brand() + '<span class="tag-chip">' + esc(R.text.title) + ' · ' + esc(R.text.discipline) + '</span></div>' +
       '<div class="stepper">' + steps.map((s, i) => '<span class="' + (i === S.fbStep ? 'on' : '') + '">' + (i + 1) + '. ' + s + '</span>').join('') + '</div></header>' +
       '<div class="fb-head"><h1>' + titles[S.fbStep] + '</h1></div>' +
       body +
@@ -638,7 +648,7 @@
   }
 
   function resultPlayer(R, id) {
-    return R.players.find((p) => p.id === id) || { name: 'Someone who left', color: '#71717A', id: id };
+    return R.players.find((p) => p.id === id) || { name: 'Someone who left', color: '#D9DCE2', id: id };
   }
   function who(p) { return p.id === S.me ? 'You' : p.name; }
   function quoteShort(q) {
@@ -653,14 +663,14 @@
   function feedbackScores(R) {
     const ps = R.players;
     const ranking = ps.map((p, i) =>
-      '<div class="rank-row' + (i === 0 ? ' first' : '') + '"><span class="place">' + (i + 1) + '</span>' + avatar(p, p.id === S.me) +
+      '<div class="rank-row' + (i === 0 ? ' first' : '') + '"><span class="place">' + (i + 1) + '</span>' + avatar(p) +
       '<span class="who">' + esc(who(p)) + '</span><span class="finds">' + p.finds.length + (p.finds.length === 1 ? ' find' : ' finds') + '</span><span class="pts">' + p.score + '</span></div>').join('');
 
     const ledgers = ps.map((p) => {
       const rows = p.finds.length
         ? p.finds.map((f) => '<div class="ledger-row"><span><strong>' + esc(feature(f.fid).name) + '</strong><q>' + esc(quoteShort(f.quote)) + '</q></span><span class="pts">' + (f.streak ? '<span class="x">×' + S.cat.streakMult + '</span>' : '') + '+' + f.pts + '</span></div>').join('')
         : '<div class="ledger-empty">No finds this round.</div>';
-      const bonus = p.bonus ? '<div class="ledger-row"><span><strong>Paragraphs cleared early</strong><q>Bonus shared by every player</q></span><span class="pts">+' + p.bonus + '</span></div>' : '';
+      const bonus = p.bonus ? '<div class="ledger-row"><span><strong>Paragraphs cleared early</strong><span class="muted" style="font-size:13px">Bonus shared by every player</span></span><span class="pts">+' + p.bonus + '</span></div>' : '';
       return '<div class="panel"><div class="panel-head"><span style="display:flex;align-items:center;gap:8px"><span class="dot" style="background:' + p.color + '"></span>' + esc(who(p)) + '</span><span class="mono">' + p.score + '</span></div>' + rows + bonus + '</div>';
     }).join('');
 
@@ -680,7 +690,7 @@
   }
 
   function tagFound(fid, p) {
-    return '<span class="tag" style="background:' + rgba(p.color, 0.14) + ';color:' + p.color + '">' + esc(feature(fid).name) + ' · ' + esc(who(p)) + '</span>';
+    return '<span class="tag" style="background:' + p.color + '">' + esc(feature(fid).name) + ' · ' + esc(who(p)) + '</span>';
   }
   function tagMiss(fid) {
     return '<span class="tag miss">Missed · ' + esc(feature(fid).name) + '</span>';
@@ -711,7 +721,7 @@
             const by = found['g' + seg.i + ':' + fid];
             if (by) {
               const p = resultPlayer(R, by);
-              if (!style) style = 'background:' + rgba(p.color, 0.14) + ';box-shadow:inset 0 -2px 0 ' + p.color + ';border-radius:3px';
+              if (!style) style = 'background:' + p.color + ';padding:3px 4px;border-radius:2px';
               tags += tagFound(fid, p);
             } else {
               if (!style) cls = 'ph-miss';
@@ -722,7 +732,7 @@
         }).join('');
         let wrapStyle = '';
         let wrapCls = '';
-        if (sentFound) wrapStyle = 'background:' + rgba(sentFound.color, 0.07) + ';border-radius:3px';
+        if (sentFound) wrapStyle = 'background:' + rgba(sentFound.color, 0.4) + ';padding:3px 0;border-radius:2px';
         if (sentMissed && !sentFound) wrapCls = 'sent-miss';
         return pre + '<span class="' + wrapCls + '" style="' + wrapStyle + '">' + inner + '</span> ';
       }).join('');
@@ -734,17 +744,17 @@
     const people = R.players.map((p) => '<div class="list-row"><span style="display:flex;align-items:center;gap:8px"><span class="dot" style="background:' + p.color + '"></span>' + esc(who(p)) + '</span><span class="mono" style="font-size:13px">' + p.finds.length + ' found</span></div>').join('');
     const counts = missedCounts(R);
     const most = Object.keys(counts).sort((a, b) => counts[b] - counts[a]).slice(0, 4)
-      .map((fid) => '<div class="list-row"><span>' + esc(feature(fid).name) + '</span><span class="mono" style="font-size:13px;color:var(--red)">×' + counts[fid] + '</span></div>').join('');
+      .map((fid) => '<div class="list-row"><span>' + esc(feature(fid).name) + '</span><span class="mono" style="font-size:13px;font-weight:700;color:var(--red)">×' + counts[fid] + '</span></div>').join('');
 
     return '<div class="annot-grid"><article class="panel essay">' + essay + '</article>' +
       '<aside class="annot-side">' +
-      '<div class="panel"><div class="panel-head">Found together</div><div style="padding:16px 18px 6px;display:flex;flex-direction:column;gap:12px">' +
+      '<div class="panel"><div class="panel-head">Found together</div><div style="padding:18px 22px 6px;display:flex;flex-direction:column;gap:12px">' +
       '<div style="display:flex;align-items:baseline;gap:8px"><span class="big-num">' + R.found.length + '</span><span class="muted">of ' + total + ' features</span></div>' +
       '<div class="stack-bar">' + stack + '</div></div>' + people + '</div>' +
       '<div class="panel"><div class="panel-head">Key</div>' +
-      '<div class="key-row" style="padding-top:12px"><span class="sw" style="background:rgba(161,98,7,0.14);box-shadow:inset 0 -2px 0 #A16207"></span>Found, in the finder’s colour</div>' +
+      '<div class="key-row" style="padding-top:14px"><span class="sw" style="background:' + PENS[0] + '"></span>Found, in the finder’s highlighter</div>' +
       '<div class="key-row"><span class="sw" style="border-bottom:2px dashed var(--red);border-radius:0"></span>Missed words</div>' +
-      '<div class="key-row" style="padding-bottom:14px"><span class="sw" style="font-family:var(--serif);font-size:14px;color:var(--ink);text-decoration:underline wavy var(--red);text-underline-offset:5px;width:auto;height:auto">Sentence</span>Missed sentence</div></div>' +
+      '<div class="key-row" style="padding-bottom:14px"><span class="sw" style="font-family:var(--serif);font-size:16px;color:var(--ink);text-decoration:underline wavy var(--red);text-underline-offset:5px;width:auto;height:auto">Sentence</span>Missed sentence</div></div>' +
       (most ? '<div class="panel"><div class="panel-head">Most missed</div>' + most + '</div>' : '') +
       '</aside></div>';
   }
@@ -753,7 +763,7 @@
     const r = 42;
     const c = 2 * Math.PI * r;
     const dash = total ? (found / total) * c : 0;
-    return '<div class="gauge-ring"><svg width="104" height="104" viewBox="0 0 104 104" aria-hidden="true"><circle cx="52" cy="52" r="' + r + '" fill="none" stroke="#EBEBE7" stroke-width="10"></circle>' +
+    return '<div class="gauge-ring"><svg width="104" height="104" viewBox="0 0 104 104" aria-hidden="true"><circle cx="52" cy="52" r="' + r + '" fill="none" stroke="#EEF0F3" stroke-width="10"></circle>' +
       (found ? '<circle cx="52" cy="52" r="' + r + '" fill="none" stroke="' + color + '" stroke-width="10" stroke-linecap="round" stroke-dasharray="' + dash.toFixed(1) + ' ' + c.toFixed(1) + '" transform="rotate(-90 52 52)"></circle>' : '') + '</svg>' +
       '<span><b>' + found + '/' + total + '</b><small>' + (total ? Math.round(found / total * 100) : 0) + '%</small></span></div>';
   }
@@ -802,7 +812,7 @@
       (host ? '<button type="button" class="btn btn-primary" data-action="lobby">Back to the lobby</button>' : '') + '</div>';
 
     return '<div class="gauges">' + gauges + '</div>' +
-      (spots ? '<h2 style="font-size:18px;font-weight:600">What nobody saw</h2><div class="spots">' + spots + '</div>' : '') +
+      (spots ? '<h2 class="fb-sub">What nobody saw</h2><div class="spots">' + spots + '</div>' : '') +
       next;
   }
 

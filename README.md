@@ -73,4 +73,4 @@ On the free plan the service sleeps after a period of inactivity and takes a lit
 - `server/index.js` – Express serves the page; a WebSocket server (`ws`) on `/ws` carries the game.
 - `server/rooms.js` – game rooms. The server holds the answers: players only receive the words of the text during a round, and every claim and click is checked on the server.
 - `server/textEngine.js` – turns the tagged texts into clickable segments.
-- `public/` – the client: plain HTML, CSS and JavaScript with no build step.
+- `public/` – the client: plain HTML, CSS and JavaScript with no build step. The look is the "Marked Up" identity: white sheets on a grey desk, a serif for the essay and headings, and a highlighter colour for each player (yellow, pink, green, blue). Colours and fonts are set at the top of `public/style.css`; player colours are in `server/rooms.js` and category colours in `shared/features.js`.
